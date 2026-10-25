@@ -86,12 +86,6 @@ button { touch-action: manipulation; }
 }
 .icon-btn:active, .month-title:active { transform: scale(.9); }
 .month-title:hover { background: var(--surface-2); }
-.sync-dot {
-  position: absolute; right: 18px; width: 10px; height: 10px; border-radius: 50%;
-  background: var(--muted); opacity: .4;
-}
-.sync-dot.on { background: #3ccf8e; opacity: 1; }
-.sync-dot.busy { background: #ffb547; opacity: 1; animation: pulse 1s infinite; }
 
 main { max-width: 900px; margin: 0 auto; padding: 14px 16px; }
 
@@ -346,7 +340,6 @@ code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; font-
 /* ---------- 動畫 ---------- */
 @keyframes pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
-@keyframes pulse { 50% { opacity: .4; } }
 @keyframes grow { from { transform: scaleX(0); } }
 @keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
 @keyframes fall { to { transform: translateY(110vh) rotate(540deg); } }

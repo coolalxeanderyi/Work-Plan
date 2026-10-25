@@ -1,11 +1,9 @@
-import { firebaseConfig } from './firebase-config.js';
-
 // ============================================================
 // 資料結構
-//   state.jobs[id]   = { id, name, emoji, color, wage, breakMin, updatedAt, deleted? }
+//   state.jobs[id]   = { id, name, emoji, color, wage, updatedAt, deleted? }
 //   state.shifts[id] = { id, jobId, date, start, end, breakMin, wage, note, updatedAt, deleted? }
 //   state.settings.goal = { id: 'goal', amount, updatedAt }   每月存錢目標
-// 刪除只標記 deleted（墓碑），多台裝置同步時才不會把刪掉的資料救回來。
+// 刪除只標記 deleted（墓碑），匯入舊備份時才不會把刪掉的資料救回來。
 // ============================================================
 
 const STORAGE_KEY = 'workplan.v1';
@@ -135,7 +133,6 @@ function remove(kind, id) {
 function commit() {
   saveLocal();
   render();
-  sync.push();
 }
 
 // 以 updatedAt 較新的為準，逐筆合併
@@ -152,16 +149,6 @@ function mergeInto(target, incoming) {
     }
   }
   return changed;
-}
-// target 裡是否有 other 沒有（或比較新）的資料
-function hasNewerThan(target, other) {
-  for (const kind of KINDS) {
-    for (const [id, item] of Object.entries(target[kind] || {})) {
-      const o = other[kind]?.[id];
-      if (!o || (item.updatedAt || 0) > (o.updatedAt || 0)) return true;
-    }
-  }
-  return false;
 }
 
 // ---------- 畫面 ----------
@@ -331,7 +318,6 @@ function renderSettings() {
     </li>`).join('') : '<li class="muted">還沒有工作，先新增一個吧 🌷</li>';
   const theme = document.documentElement.dataset.theme;
   $$('#themes button').forEach(b => b.classList.toggle('selected', b.dataset.theme === theme));
-  sync.renderPanel();
 }
 
 // ---------- 某一天 ----------
@@ -383,7 +369,7 @@ function openShiftForm(shift, date) {
   updatePreview();
   $('#shiftDialog').showModal();
 }
-// 每次上班時間不固定，所以帶入「這份工作最近一次排的班」的時間，第一次就留白
+// 每次上班時間不固定，所以帶入「這份工作最近一次排的班」的時間和休息，第一次就留白
 function applyJobDefaults() {
   const f = $('#shiftForm');
   const j = state.jobs[f.jobId.value];
@@ -393,7 +379,7 @@ function applyJobDefaults() {
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
   f.start.value = last?.start || '';
   f.end.value = last?.end || '';
-  f.breakMin.value = j.breakMin ?? 0;
+  f.breakMin.value = last?.breakMin ?? 0;
   f.wage.value = j.wage;
 }
 function readShiftForm() {
@@ -454,7 +440,6 @@ function openJobForm(job) {
   const f = $('#jobForm');
   f.name.value = job?.name || '';
   f.wage.value = job?.wage ?? 190;
-  f.breakMin.value = job?.breakMin ?? 0;
   const used = new Set(jobs().map(j => j.color));
   pickedColor = job?.color || COLORS.find(c => !used.has(c)) || COLORS[0];
   const usedEmoji = new Set(jobs().map(j => j.emoji));
@@ -478,7 +463,6 @@ function saveJob(e) {
   upsert('jobs', {
     ...(editingJob || { id: newId() }),
     name, emoji: pickedEmoji, color: pickedColor, wage: Number(f.wage.value) || 0,
-    breakMin: Number(f.breakMin.value) || 0,
   });
   $('#jobDialog').close();
   toast(editingJob ? '更新好了 ✨' : `${pickedEmoji} 新增工作成功`);
@@ -619,133 +603,6 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-// ============================================================
-// 雲端同步（Firebase）。firebase-config.js 沒填時，整個網站以本機模式運作。
-// 雲端資料存在 Firestore 的 users/{uid} 這一份文件裡。
-// ============================================================
-const sync = {
-  enabled: !!firebaseConfig,
-  user: null,
-  api: null,
-  remote: null,
-  timer: null,
-
-  async init() {
-    if (!this.enabled) { this.renderPanel(); return; }
-    const v = '10.12.2';
-    try {
-      const [app, auth, fs] = await Promise.all([
-        import(`https://www.gstatic.com/firebasejs/${v}/firebase-app.js`),
-        import(`https://www.gstatic.com/firebasejs/${v}/firebase-auth.js`),
-        import(`https://www.gstatic.com/firebasejs/${v}/firebase-firestore.js`),
-      ]);
-      const fbApp = app.initializeApp(firebaseConfig);
-      const a = auth.getAuth(fbApp);
-      const db = fs.getFirestore(fbApp);
-      this.api = { auth, fs, a, db, unsub: null };
-      auth.onAuthStateChanged(a, user => this.onUser(user));
-    } catch (err) {
-      console.error(err);
-      this.loadError = true;
-      this.renderPanel();
-    }
-  },
-
-  onUser(user) {
-    const { fs, db } = this.api;
-    this.user = user;
-    this.remote = null;
-    if (this.api.unsub) { this.api.unsub(); this.api.unsub = null; }
-    if (user) {
-      this.setDot('busy');
-      const ref = fs.doc(db, 'users', user.uid);
-      this.api.unsub = fs.onSnapshot(ref, snap => {
-        const remote = snap.exists() ? snap.data() : {};
-        this.remote = Object.fromEntries(KINDS.map(k => [k, remote[k] || {}]));
-        if (mergeInto(state, this.remote)) { saveLocal(); render(); }
-        if (hasNewerThan(state, this.remote)) this.push(0);
-        this.setDot('on');
-      }, err => {
-        console.error(err);
-        toast('同步失敗，請檢查 Firestore 規則 😢');
-        this.setDot('');
-      });
-    } else {
-      this.setDot('');
-    }
-    this.renderPanel();
-  },
-
-  push(delay = 800) {
-    if (!this.user || !this.remote) return;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(async () => {
-      const { fs, db } = this.api;
-      this.setDot('busy');
-      try {
-        const data = JSON.parse(JSON.stringify(state)); // 去掉 undefined，Firestore 不接受
-        await fs.setDoc(fs.doc(db, 'users', this.user.uid), { ...data, savedAt: Date.now() });
-        this.setDot('on');
-      } catch (err) {
-        console.error(err);
-        this.setDot('');
-        toast('上傳失敗，連線恢復後會再試 📡');
-      }
-    }, delay);
-  },
-
-  async login() {
-    const { auth, a } = this.api;
-    const provider = new auth.GoogleAuthProvider();
-    try {
-      await auth.signInWithPopup(a, provider);
-    } catch (err) {
-      if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment') {
-        await auth.signInWithRedirect(a, provider);
-      } else if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-        console.error(err);
-        toast('登入失敗：' + err.code);
-      }
-    }
-  },
-
-  async logout() {
-    await this.api.auth.signOut(this.api.a);
-    toast('已登出，資料還留在這台裝置 👋');
-  },
-
-  setDot(cls) {
-    const dot = $('#syncDot');
-    dot.className = 'sync-dot' + (cls ? ' ' + cls : '');
-    dot.title = cls === 'on' ? '已同步' : cls === 'busy' ? '同步中…' : '本機模式';
-  },
-
-  renderPanel() {
-    const p = $('#syncPanel');
-    if (!p) return;
-    if (!this.enabled) {
-      p.innerHTML = `<p class="muted">目前是<b>本機模式</b>：資料存在這台裝置裡，記得偶爾匯出備份喔。
-        想讓手機和電腦看到同一份班表時再設定就好，現在不用管它 😊</p>`;
-      return;
-    }
-    if (this.loadError) {
-      p.innerHTML = `<p class="muted">無法載入同步元件，請確認網路連線後重新整理。</p>`;
-      return;
-    }
-    if (!this.api) {
-      p.innerHTML = `<p class="muted">載入中…</p>`;
-      return;
-    }
-    if (this.user) {
-      p.innerHTML = `<p class="muted">已登入 <b>${esc(this.user.email || this.user.displayName)}</b>，資料會自動同步到所有登入同帳號的裝置。</p>
-        <button class="btn" id="logoutBtn">登出</button>`;
-    } else {
-      p.innerHTML = `<p class="muted">登入 Google 帳號後，手機、電腦都能看到同一份班表。這台裝置現有的資料會自動合併上去。</p>
-        <button class="btn primary" id="loginBtn">用 Google 登入</button>`;
-    }
-  },
-};
-
 // ---------- 事件 ----------
 $('#prevMonth').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1); render(); };
 $('#nextMonth').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1); render(); };
@@ -771,8 +628,6 @@ document.addEventListener('click', e => {
   const job = e.target.closest('[data-job]');
   if (job) { openJobForm(state.jobs[job.dataset.job]); return; }
   if (e.target.closest('[data-close]')) e.target.closest('dialog').close();
-  if (e.target.id === 'loginBtn') sync.login();
-  if (e.target.id === 'logoutBtn') sync.logout();
 });
 // 點對話框外面的背景就關閉
 $$('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
@@ -839,4 +694,3 @@ if ('serviceWorker' in navigator) {
 
 setTheme(document.documentElement.dataset.theme || 'aqua');
 render();
-sync.init();

@@ -22,7 +22,6 @@
     <button class="icon-btn" id="prevMonth" aria-label="上個月">‹</button>
     <button class="month-title" id="monthTitle" aria-label="回到本月"></button>
     <button class="icon-btn" id="nextMonth" aria-label="下個月">›</button>
-    <span class="sync-dot" id="syncDot" title="本機模式"></span>
   </header>
 
   <main id="main">
@@ -64,13 +63,8 @@
       </div>
 
       <div class="card">
-        <h2>☁️ 雲端同步</h2>
-        <div id="syncPanel"></div>
-      </div>
-
-      <div class="card">
         <h2>💾 備份</h2>
-        <p class="muted">把所有資料存成一個檔案，或從檔案還原。</p>
+        <p class="muted">資料存在這台裝置裡。把所有資料存成一個檔案，換手機或想在電腦上看時，用「匯入備份」還原。</p>
         <div class="row">
           <button class="btn" id="exportBtn">匯出備份</button>
           <label class="btn">匯入備份<input type="file" id="importInput" accept="application/json" hidden></label>
@@ -146,10 +140,7 @@
       <label>名稱<input type="text" name="name" required maxlength="30" placeholder="例如：咖啡店 ☕"></label>
       <label>小圖示<div class="emojis" id="emojis"></div></label>
       <label>顏色<div class="swatches" id="swatches"></div></label>
-      <div class="grid2">
-        <label>時薪<input type="number" name="wage" min="0" step="1" inputmode="decimal" required></label>
-        <label>預設休息（分鐘）<input type="number" name="breakMin" min="0" step="5" inputmode="numeric"></label>
-      </div>
+      <label>時薪<input type="number" name="wage" min="0" step="1" inputmode="decimal" required></label>
       <div class="row end">
         <button type="button" class="btn danger" id="jobDelete">刪除</button>
         <button type="submit" class="btn primary">儲存</button>
