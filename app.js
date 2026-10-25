@@ -4,10 +4,12 @@ import { firebaseConfig } from './firebase-config.js';
 // 資料結構
 //   state.jobs[id]   = { id, name, emoji, color, wage, breakMin, start, end, updatedAt, deleted? }
 //   state.shifts[id] = { id, jobId, date, start, end, breakMin, wage, note, updatedAt, deleted? }
+//   state.settings.goal = { id: 'goal', amount, updatedAt }   每月存錢目標
 // 刪除只標記 deleted（墓碑），多台裝置同步時才不會把刪掉的資料救回來。
 // ============================================================
 
 const STORAGE_KEY = 'workplan.v1';
+const KINDS = ['jobs', 'shifts', 'settings'];
 const COLORS = ['#7fd4e8', '#ff8fab', '#ffb36b', '#ffd85e', '#8fd9a8', '#b69cff', '#ff9e9e', '#a3b8ff'];
 const EMOJIS = ['☕', '🍰', '🍔', '🍜', '🧋', '📚', '✏️', '🛒', '👕', '💻', '🎨', '🎤', '🐶', '🌸', '🚲', '📦', '🏥', '⭐'];
 const THEME_KEY = 'workplan.theme.v2';
@@ -55,6 +57,44 @@ function shiftMinutes(s) {
 }
 function shiftPay(s) { return shiftMinutes(s) / 60 * (Number(s.wage) || 0); }
 
+// 撞班判斷：把班換成「從 1970 年起算的分鐘數」區間，跨夜班也能正確比較
+function dayNum(date) { const [y, m, d] = date.split('-').map(Number); return Date.UTC(y, m - 1, d) / 86400000; }
+function shiftSpan(s) {
+  const start = dayNum(s.date) * 1440 + toMin(s.start);
+  let len = toMin(s.end) - toMin(s.start);
+  if (len <= 0) len += 1440;
+  return [start, start + len];
+}
+function clashesOf(s, ignoreId = s.id) {
+  const [a0, a1] = shiftSpan(s);
+  const d = parseYmd(s.date);
+  const nearby = [addDays(d, -1), d, addDays(d, 1)].flatMap(x => shiftsOn(ymd(x)));
+  return nearby.filter(o => {
+    if (o.id === ignoreId) return false;
+    const [b0, b1] = shiftSpan(o);
+    return a0 < b1 && b0 < a1;
+  });
+}
+const goalAmount = () => Number(state.settings.goal?.amount) || 0;
+const monthKey = date => date.slice(0, 7);
+function monthPay(key) {
+  return Object.values(state.shifts)
+    .filter(s => !s.deleted && s.date.startsWith(key + '-'))
+    .reduce((a, s) => a + shiftPay(s), 0);
+}
+// 新增班次後，若某個月剛好跨過存錢目標就慶祝
+function celebrateGoal(before) {
+  const goal = goalAmount();
+  if (!goal) return;
+  for (const [key, pay] of Object.entries(before)) {
+    if (pay < goal && monthPay(key) >= goal) {
+      confetti();
+      toast(`🎉 達成 ${Number(key.slice(5))} 月存錢目標！`);
+      return;
+    }
+  }
+}
+
 const jobs = () => Object.values(state.jobs).filter(j => !j.deleted).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
 const jobOf = id => (state.jobs[id]?.name ? state.jobs[id] : { name: '（已刪除的工作）', color: '#c9c2c6', emoji: '👻' });
 const shiftsOn = date => Object.values(state.shifts)
@@ -71,9 +111,9 @@ function shiftsInMonth(month) {
 function loadLocal() {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (data && data.jobs && data.shifts) return data;
+    if (data && data.jobs && data.shifts) return { settings: {}, ...data };
   } catch { /* 沒有資料或格式錯誤時重新開始 */ }
-  return { jobs: {}, shifts: {} };
+  return { jobs: {}, shifts: {}, settings: {} };
 }
 function saveLocal() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { toast('無法儲存到本機 😢'); }
@@ -101,7 +141,8 @@ function commit() {
 // 以 updatedAt 較新的為準，逐筆合併
 function mergeInto(target, incoming) {
   let changed = false;
-  for (const kind of ['jobs', 'shifts']) {
+  for (const kind of KINDS) {
+    target[kind] ||= {};
     for (const [id, item] of Object.entries(incoming[kind] || {})) {
       const cur = target[kind][id];
       if (!cur || (item.updatedAt || 0) > (cur.updatedAt || 0)) {
@@ -114,8 +155,8 @@ function mergeInto(target, incoming) {
 }
 // target 裡是否有 other 沒有（或比較新）的資料
 function hasNewerThan(target, other) {
-  for (const kind of ['jobs', 'shifts']) {
-    for (const [id, item] of Object.entries(target[kind])) {
+  for (const kind of KINDS) {
+    for (const [id, item] of Object.entries(target[kind] || {})) {
       const o = other[kind]?.[id];
       if (!o || (item.updatedAt || 0) > (o.updatedAt || 0)) return true;
     }
@@ -165,9 +206,10 @@ function renderCalendar() {
   renderGreeting();
   const t = monthTotals(shiftsInMonth(cursor));
   $('#calSummary').innerHTML = `
-    <span class="pill">🗓️ <b>${t.count}</b> 個班</span>
-    <span class="pill">⏰ <b>${hours(t.min)}</b> 小時</span>
-    <span class="pill">💰 <b>${money(t.pay)}</b></span>`;
+    <span class="pill">🗓️ <b>${t.count}</b> 班</span>
+    <span class="pill">⏰ <b>${hours(t.min)}</b>h</span>
+    <span class="pill">💰 <b>${money(t.pay)}</b></span>
+    ${goalAmount() ? `<span class="pill">🐷 <b>${Math.floor(t.pay / goalAmount() * 100)}%</b></span>` : ''}`;
 
   const first = addDays(cursor, -cursor.getDay());
   const lastOfMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
@@ -187,7 +229,8 @@ function renderCalendar() {
       return `<div class="chip" style="background:${esc(j.color)};color:${textOn(j.color)}">${esc(emojiOf(j))}<span class="t"> ${esc(s.start)}</span><span class="n"> ${esc(j.name)}</span></div>`;
     }).join('');
     const more = list.length > 3 ? `<div class="more">+${list.length - 3}</div>` : '';
-    html += `<button class="${cls.join(' ')}" data-date="${key}"><span class="num">${d.getDate()}</span>${chips}${more}</button>`;
+    const clash = list.some(s => clashesOf(s).length) ? '<span class="clash" title="撞班">⚠️</span>' : '';
+    html += `<button class="${cls.join(' ')}" data-date="${key}"><span class="num">${d.getDate()}</span>${clash}${chips}${more}</button>`;
   }
   $('#calendar').innerHTML = html;
 }
@@ -198,7 +241,7 @@ function shiftItemHtml(s) {
   return `<button class="shift-item" data-shift="${s.id}">
     <span class="bubble" style="background:${esc(j.color)}55">${esc(emojiOf(j))}</span>
     <span class="info">
-      <div class="title">${esc(j.name)}</div>
+      <div class="title">${esc(j.name)}${clashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞班</span>' : ''}</div>
       <div class="sub">${esc(s.start)}–${esc(s.end)} · ${hours(shiftMinutes(s))} 小時${note}</div>
     </span>
     <span class="pay">${money(shiftPay(s))}</span>
@@ -236,7 +279,26 @@ function renderStats() {
   const rows = Object.entries(byJob).sort((a, b) => b[1].pay - a[1].pay);
   const maxPay = Math.max(1, ...rows.map(r => r[1].pay));
 
+  const goal = goalAmount();
+  const pct = goal ? Math.min(100, t.pay / goal * 100) : 0;
+  const goalHtml = goal ? `
+      <div class="goal-top">
+        <span class="goal-pig ${pct >= 100 ? 'done' : ''}">🐷</span>
+        <div>
+          <div class="goal-num">${money(t.pay)} <span>/ ${money(goal)}</span></div>
+          <div class="muted" style="margin:0">${pct >= 100 ? '達成目標了，太棒了 🎉' : `還差 ${money(goal - t.pay)}，加油 💪`}</div>
+        </div>
+      </div>
+      <div class="meter big"><div style="width:${pct.toFixed(1)}%;background:var(--primary)"></div></div>
+      <button class="btn small" id="goalBtn" style="margin-top:12px">修改目標</button>`
+    : `<p class="muted">設定每個月想賺多少，看著小豬存錢筒慢慢裝滿 ✨</p>
+      <button class="btn primary small" id="goalBtn">設定目標</button>`;
+
   $('#stats').innerHTML = `
+    <div class="card goal">
+      <h2>🎯 ${cursor.getMonth() + 1} 月存錢目標</h2>
+      ${goalHtml}
+    </div>
     <div class="kpis">
       <div class="kpi"><div class="emoji">💰</div><div class="label">本月薪資</div><div class="value">${money(t.pay)}</div></div>
       <div class="kpi"><div class="emoji">⏰</div><div class="label">本月工時</div><div class="value">${hours(t.min)}h</div></div>
@@ -339,30 +401,44 @@ function readShiftForm() {
 }
 function updatePreview() {
   const s = readShiftForm();
+  const warn = $('#shiftWarn');
+  warn.hidden = true;
   if (!s.start || !s.end) { $('#shiftPreview').textContent = ''; return; }
   const overnight = toMin(s.end) <= toMin(s.start) ? '（跨夜）' : '';
   $('#shiftPreview').textContent = `共 ${hours(shiftMinutes(s))} 小時${overnight}，預估 ${money(shiftPay(s))}`;
+  if (!s.date) return;
+  const clashes = clashesOf({ ...s, id: editingShift?.id });
+  if (clashes.length) {
+    warn.hidden = false;
+    warn.textContent = '⚠️ 撞班了：' + clashes.map(o =>
+      `${o.date === s.date ? '' : dateLabel(o.date) + ' '}${jobOf(o.jobId).name} ${o.start}–${o.end}`).join('、');
+  }
 }
 function saveShift(e) {
   e.preventDefault();
   const data = readShiftForm();
   if (!data.date || !data.start || !data.end) return;
+  const repeat = editingShift ? 0 : Number($('#shiftForm').repeat.value) || 0;
+  const dates = Array.from({ length: repeat + 1 }, (_, i) => ymd(addDays(parseYmd(data.date), i * 7)));
+  const clashCount = dates.filter(date => clashesOf({ ...data, date, id: editingShift?.id }).length).length;
+  if (clashCount && !confirm(`⚠️ 有 ${clashCount} 個班跟其他班撞到了，還是要儲存嗎？`)) return;
+
   localStorage.setItem('workplan.lastJob', data.jobId);
+  const before = Object.fromEntries(dates.map(d => [monthKey(d), monthPay(monthKey(d))]));
   if (editingShift) {
     upsert('shifts', { ...editingShift, ...data });
     toast('更新好了 ✨');
   } else {
-    const repeat = Number($('#shiftForm').repeat.value) || 0;
-    const base = parseYmd(data.date);
     const now = Date.now();
-    for (let i = 0; i <= repeat; i++) {
+    for (const date of dates) {
       const id = newId();
-      state.shifts[id] = { id, ...data, date: ymd(addDays(base, i * 7)), updatedAt: now };
+      state.shifts[id] = { id, ...data, date, updatedAt: now };
     }
     commit();
     toast(repeat ? `新增了 ${repeat + 1} 個班 🎉` : '排好班了 🎉');
   }
   $('#shiftDialog').close();
+  celebrateGoal(before);
 }
 
 // ---------- 工作表單 ----------
@@ -427,6 +503,110 @@ async function importData(file) {
   }
 }
 
+// ---------- 複製一週 ----------
+function weekStart(date) { const d = parseYmd(date); return addDays(d, -d.getDay()); }
+function weekLabel(date) {
+  const s = weekStart(date);
+  const e = addDays(s, 6);
+  return `${s.getMonth() + 1}/${s.getDate()}（日）～ ${e.getMonth() + 1}/${e.getDate()}（六）`;
+}
+// 算出要複製哪些班：跳過目標週已經有的相同班
+function copyPlan() {
+  const f = $('#copyForm');
+  if (!f.from.value || !f.to.value) return null;
+  const from = weekStart(f.from.value);
+  const offset = Math.round((weekStart(f.to.value) - from) / 86400000);
+  const source = [];
+  for (let i = 0; i < 7; i++) source.push(...shiftsOn(ymd(addDays(from, i))));
+  const fresh = [];
+  let skipped = 0;
+  for (const s of source) {
+    const date = ymd(addDays(parseYmd(s.date), offset));
+    const dup = shiftsOn(date).some(o => o.jobId === s.jobId && o.start === s.start && o.end === s.end);
+    if (dup || offset === 0) skipped++;
+    else fresh.push({ jobId: s.jobId, start: s.start, end: s.end, breakMin: s.breakMin, wage: s.wage, note: s.note || '', date });
+  }
+  return { fresh, skipped, total: source.length };
+}
+function openCopyWeek() {
+  const f = $('#copyForm');
+  const today = new Date();
+  const sameMonth = today.getFullYear() === cursor.getFullYear() && today.getMonth() === cursor.getMonth();
+  const target = ymd(weekStart(ymd(sameMonth ? today : cursor)));
+  f.to.value = target;
+  f.from.value = ymd(addDays(parseYmd(target), -7));
+  updateCopyPreview();
+  $('#copyDialog').showModal();
+}
+function updateCopyPreview() {
+  const f = $('#copyForm');
+  $('#copyFromLabel').textContent = f.from.value ? weekLabel(f.from.value) : '';
+  $('#copyToLabel').textContent = f.to.value ? weekLabel(f.to.value) : '';
+  const plan = copyPlan();
+  let msg = '';
+  if (plan) {
+    if (!plan.total) msg = '來源那週沒有班喔 🤔';
+    else if (!plan.fresh.length) msg = '那些班都已經排好了，不用再複製 👌';
+    else msg = `會複製 ${plan.fresh.length} 個班` + (plan.skipped ? `（${plan.skipped} 個已經有了，會跳過）` : '');
+  }
+  $('#copyPreview').textContent = msg;
+  $('#copySubmit').disabled = !plan?.fresh.length;
+}
+function doCopyWeek(e) {
+  e.preventDefault();
+  const plan = copyPlan();
+  if (!plan?.fresh.length) return;
+  const clashCount = plan.fresh.filter(s => clashesOf(s, null).length).length;
+  if (clashCount && !confirm(`⚠️ 其中 ${clashCount} 個班會跟原本的班撞到，還是要複製嗎？`)) return;
+  const before = Object.fromEntries(plan.fresh.map(s => [monthKey(s.date), monthPay(monthKey(s.date))]));
+  const now = Date.now();
+  const ids = plan.fresh.map(s => {
+    const id = newId();
+    state.shifts[id] = { id, ...s, updatedAt: now };
+    return id;
+  });
+  commit();
+  $('#copyDialog').close();
+  // 複製過來的班之間也可能互撞（例如來源那週本來就撞班）
+  const clashed = ids.filter(id => clashesOf(state.shifts[id]).length).length;
+  toast(`複製了 ${plan.fresh.length} 個班 📋` + (clashed ? `，其中 ${clashed} 個撞班 ⚠️` : ''));
+  celebrateGoal(before);
+}
+
+// ---------- 存錢目標 ----------
+function openGoal() {
+  $('#goalForm').amount.value = goalAmount() || '';
+  $('#goalDialog').showModal();
+}
+function saveGoal(e) {
+  e.preventDefault();
+  const amount = Math.max(0, Number($('#goalForm').amount.value) || 0);
+  state.settings.goal = { id: 'goal', amount, updatedAt: Date.now() };
+  commit();
+  $('#goalDialog').close();
+  toast(amount ? '目標設定好了，加油 🐷' : '已取消存錢目標');
+  if (amount && monthPay(monthKey(ymd(cursor))) >= amount) confetti();
+}
+
+// ---------- 撒花 ----------
+function confetti() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const pieces = ['🎉', '✨', '💰', '🫧', '💖', '⭐', '🐷'];
+  const box = document.createElement('div');
+  box.className = 'confetti';
+  for (let i = 0; i < 36; i++) {
+    const p = document.createElement('span');
+    p.textContent = pieces[i % pieces.length];
+    p.style.left = Math.random() * 100 + 'vw';
+    p.style.animationDelay = Math.random() * 0.6 + 's';
+    p.style.animationDuration = 1.8 + Math.random() * 1.4 + 's';
+    p.style.fontSize = 16 + Math.random() * 18 + 'px';
+    box.append(p);
+  }
+  document.body.append(box);
+  setTimeout(() => box.remove(), 4000);
+}
+
 // ---------- 提示 ----------
 let toastTimer;
 function toast(msg) {
@@ -478,8 +658,8 @@ const sync = {
       this.setDot('busy');
       const ref = fs.doc(db, 'users', user.uid);
       this.api.unsub = fs.onSnapshot(ref, snap => {
-        const remote = snap.exists() ? snap.data() : { jobs: {}, shifts: {} };
-        this.remote = { jobs: remote.jobs || {}, shifts: remote.shifts || {} };
+        const remote = snap.exists() ? snap.data() : {};
+        this.remote = Object.fromEntries(KINDS.map(k => [k, remote[k] || {}]));
         if (mergeInto(state, this.remote)) { saveLocal(); render(); }
         if (hasNewerThan(state, this.remote)) this.push(0);
         this.setDot('on');
@@ -636,6 +816,12 @@ $('#jobDelete').onclick = () => {
   toast('刪掉了 🗑️');
 };
 
+$('#copyWeekBtn').onclick = openCopyWeek;
+$('#copyForm').addEventListener('input', updateCopyPreview);
+$('#copyForm').addEventListener('submit', doCopyWeek);
+$('#goalForm').addEventListener('submit', saveGoal);
+$('#stats').addEventListener('click', e => { if (e.target.id === 'goalBtn') openGoal(); });
+
 $('#exportBtn').onclick = exportData;
 $('#importInput').onchange = e => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ''; };
 
@@ -646,7 +832,7 @@ window.addEventListener('storage', e => {
 
 // 離線也能開啟
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 }
 
 setTheme(document.documentElement.dataset.theme || 'aqua');

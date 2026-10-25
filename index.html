@@ -29,6 +29,7 @@
     <section id="view-calendar" class="view">
       <div class="greeting" id="greeting"></div>
       <div class="month-summary" id="calSummary"></div>
+      <div class="tools"><button class="btn small" id="copyWeekBtn">📋 複製一週</button></div>
       <div class="weekdays">
         <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
       </div>
@@ -127,6 +128,7 @@
         </select>
       </label>
       <p class="muted" id="shiftPreview"></p>
+      <p class="warn" id="shiftWarn" hidden></p>
       <div class="row end">
         <button type="button" class="btn danger" id="shiftDelete">刪除</button>
         <button type="submit" class="btn primary">儲存</button>
@@ -154,6 +156,39 @@
       </div>
       <div class="row end">
         <button type="button" class="btn danger" id="jobDelete">刪除</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 複製一週 -->
+  <dialog id="copyDialog">
+    <form id="copyForm" method="dialog">
+      <div class="dialog-head">
+        <h3>📋 複製一週的班</h3>
+        <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
+      </div>
+      <label>從這一週（選那週的任一天）<input type="date" name="from" required></label>
+      <p class="week-label" id="copyFromLabel"></p>
+      <label>複製到這一週<input type="date" name="to" required></label>
+      <p class="week-label" id="copyToLabel"></p>
+      <p class="muted" id="copyPreview"></p>
+      <div class="row end">
+        <button type="submit" class="btn primary" id="copySubmit">複製</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 存錢目標 -->
+  <dialog id="goalDialog">
+    <form id="goalForm" method="dialog">
+      <div class="dialog-head">
+        <h3>🎯 每月存錢目標</h3>
+        <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
+      </div>
+      <label>每個月想賺多少？<input type="number" name="amount" min="0" step="100" inputmode="numeric" placeholder="例如：15000"></label>
+      <p class="muted">每個月都用這個目標。填 0 或清空就是不設定。</p>
+      <div class="row end">
         <button type="submit" class="btn primary">儲存</button>
       </div>
     </form>

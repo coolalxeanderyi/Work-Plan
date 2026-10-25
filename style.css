@@ -106,7 +106,7 @@ main { max-width: 900px; margin: 0 auto; padding: 14px 16px; }
 .greeting .sub { color: var(--muted); font-size: 13px; }
 
 /* ---------- 月曆 ---------- */
-.month-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.month-summary { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .pill {
   background: var(--surface); border: 2px solid var(--border);
   border-radius: 999px; padding: 4px 12px; font-size: 13px;
@@ -149,6 +149,37 @@ main { max-width: 900px; margin: 0 auto; padding: 14px 16px; }
   .chip { text-align: left; }
   .chip .t, .chip .n { display: inline; }
 }
+
+/* ---------- 撞班 ---------- */
+.day { position: relative; }
+.day .clash { position: absolute; top: 3px; right: 4px; font-size: 11px; }
+.clash-tag {
+  font-size: 11px; font-weight: 800; color: #9a5b00; background: #ffedc2;
+  border-radius: 999px; padding: 1px 7px; margin-left: 4px; vertical-align: middle;
+}
+.warn {
+  background: #fff3d6; color: #8a5a00; border-radius: 14px;
+  padding: 8px 12px; font-size: 13px; font-weight: 700; margin: 0 0 6px;
+}
+@media (prefers-color-scheme: dark) {
+  .warn, .clash-tag { background: #4a3a14; color: #ffd98a; }
+}
+
+.tools { display: flex; justify-content: flex-end; margin: -4px 0 10px; }
+.week-label { margin: -6px 0 10px 4px; font-size: 13px; font-weight: 800; color: var(--primary); }
+.btn:disabled { opacity: .45; cursor: default; }
+
+/* ---------- 存錢目標 ---------- */
+.goal-top { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.goal-pig { font-size: 44px; line-height: 1; animation: bob 2.4s ease-in-out infinite; }
+.goal-pig.done { animation: wiggle .6s ease-in-out infinite; }
+.goal-num { font-size: 22px; font-weight: 800; color: var(--primary); font-variant-numeric: tabular-nums; }
+.goal-num span { font-size: 14px; color: var(--muted); }
+.meter.big { height: 18px; }
+
+/* ---------- 撒花 ---------- */
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 50; overflow: hidden; }
+.confetti span { position: absolute; top: -40px; animation: fall 2.4s ease-in forwards; }
 
 /* ---------- 卡片 / 清單 ---------- */
 .card {
@@ -317,6 +348,8 @@ code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; font-
 @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 @keyframes pulse { 50% { opacity: .4; } }
 @keyframes grow { from { transform: scaleX(0); } }
+@keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+@keyframes fall { to { transform: translateY(110vh) rotate(540deg); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
