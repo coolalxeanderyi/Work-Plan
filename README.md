@@ -16,6 +16,7 @@
 - **存錢目標**：設定每月想賺多少，小豬存錢筒會顯示進度，達成時撒花慶祝 🎉
 - **統計**：本月薪資、工時、班數，各工作明細，以及全年累計
 - **備份**：匯出或匯入 JSON 檔，換手機或想在電腦上看時用來搬資料
+- **登入**（選用）：用 Google 或 Email 登入後資料存到雲端，換手機、刪掉 App 都不會不見
 
 > 時薪會記在每個班上。之後調整某份工作的時薪，只影響新排的班，過去的薪資不會被改掉。
 
@@ -38,13 +39,40 @@
 
 ---
 
+## 開啟登入功能（Firebase，免費）
+
+`firebase-config.js` 是 `null` 時不會出現登入功能。開啟方式：
+
+1. 到 <https://console.firebase.google.com/> 建立專案（Google Analytics 可關閉）。
+2. 專案首頁新增**網頁應用程式**（`</>` 圖示），複製出現的 `firebaseConfig`，貼進 `firebase-config.js` 取代 `null`。這些值不是密碼，放在公開 repo 沒問題。
+3. **Authentication** → Sign-in method：啟用 **Google** 和 **電子郵件/密碼**。
+4. **Authentication** → Settings → Authorized domains：加入 `coolalxeanderyi.github.io`。
+5. **Firestore Database** → 建立資料庫（地區選 `asia-east1` 台灣，正式版模式）。
+6. Firestore → **規則**，換成下面這段後發布（每個人只能讀寫自己的資料）：
+
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{userId} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+     }
+   }
+   ```
+
+> 專案管理者在 Firebase 後台看得到所有使用者的資料，分享給朋友前可以先說一聲。
+
+---
+
 ## 檔案說明
 
 | 檔案 | 用途 |
 |---|---|
 | `index.html` | 頁面結構 |
 | `style.css` | 樣式（自動支援深色模式） |
-| `app.js` | 主要功能：排班、課表、統計、備份 |
+| `app.js` | 主要功能：排班、課表、統計、備份、登入 |
+| `firebase-config.js` | 登入功能的設定（選填） |
 | `sw.js` | 離線快取 |
 | `manifest.json`、`icons/` | 加到主畫面用的 App 資訊和圖示 |
 

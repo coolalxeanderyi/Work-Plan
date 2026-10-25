@@ -1,3 +1,5 @@
+import { firebaseConfig } from './firebase-config.js';
+
 // ============================================================
 // 資料結構
 //   state.jobs[id]   = { id, name, emoji, color, wage, updatedAt, deleted? }
@@ -5,7 +7,7 @@
 //   state.classes[id] = { id, name, weekday, start, end, room, color, updatedAt, deleted? }   每週固定的課
 //   state.settings.goal = { id: 'goal', amount, updatedAt }   每月存錢目標
 //   state.settings.semester = { id: 'semester', start, end, updatedAt }   學期日期，課只在這段期間出現
-// 刪除只標記 deleted（墓碑），匯入舊備份時才不會把刪掉的資料救回來。
+// 刪除只標記 deleted（墓碑），多台裝置同步或匯入舊備份時，才不會把刪掉的資料救回來。
 // ============================================================
 
 const STORAGE_KEY = 'workplan.v1';
@@ -137,12 +139,13 @@ function shiftsInMonth(month) {
 }
 
 // ---------- 儲存 ----------
+function emptyState() { return { jobs: {}, shifts: {}, classes: {}, settings: {} }; }
 function loadLocal() {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (data && data.jobs && data.shifts) return { classes: {}, settings: {}, ...data };
   } catch { /* 沒有資料或格式錯誤時重新開始 */ }
-  return { jobs: {}, shifts: {}, classes: {}, settings: {} };
+  return emptyState();
 }
 function saveLocal() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { toast('無法儲存到本機 😢'); }
@@ -164,6 +167,7 @@ function remove(kind, id) {
 function commit() {
   saveLocal();
   render();
+  cloud.push();
 }
 
 // 以 updatedAt 較新的為準，逐筆合併
@@ -181,6 +185,17 @@ function mergeInto(target, incoming) {
   }
   return changed;
 }
+// target 裡是否有 other 沒有（或比較新）的資料
+function hasNewerThan(target, other) {
+  for (const kind of KINDS) {
+    for (const [id, item] of Object.entries(target[kind] || {})) {
+      const o = other[kind]?.[id];
+      if (!o || (item.updatedAt || 0) > (o.updatedAt || 0)) return true;
+    }
+  }
+  return false;
+}
+const hasData = st => KINDS.some(k => Object.values(st[k] || {}).some(x => !x.deleted));
 
 // ---------- 畫面 ----------
 function render() {
@@ -361,6 +376,7 @@ function renderSettings() {
     </li>`).join('') : '<li class="muted">還沒有工作，先新增一個吧 🌷</li>';
   const theme = document.documentElement.dataset.theme;
   $$('#themes button').forEach(b => b.classList.toggle('selected', b.dataset.theme === theme));
+  cloud.renderPanel();
 }
 
 // ---------- 某一天 ----------
@@ -789,6 +805,209 @@ async function shareApp() {
   }
 }
 
+// ============================================================
+// 登入與雲端存檔（Firebase）。firebase-config.js 是 null 時整段不啟用。
+// 每個人的資料存在 Firestore 的 users/{uid} 這一份文件；手機裡的資料仍是主要來源，
+// 有網路時自動和雲端合併，所以離線也能照常使用。
+// ============================================================
+const UID_KEY = 'workplan.uid';
+const AUTH_ERRORS = {
+  'auth/invalid-email': 'Email 格式不對耶',
+  'auth/missing-password': '請輸入密碼',
+  'auth/weak-password': '密碼至少要 6 個字',
+  'auth/email-already-in-use': '這個 Email 已經註冊過了，直接按「登入」就好',
+  'auth/invalid-credential': 'Email 或密碼不對',
+  'auth/wrong-password': 'Email 或密碼不對',
+  'auth/user-not-found': '找不到這個帳號，要不要先註冊？',
+  'auth/too-many-requests': '試太多次了，等一下再試',
+  'auth/network-request-failed': '網路好像斷了，連上再試',
+  'auth/operation-not-allowed': '這種登入方式還沒在 Firebase 開啟',
+  'auth/unauthorized-domain': '這個網址還沒加到 Firebase 的授權網域',
+};
+const authMessage = err => AUTH_ERRORS[err.code] || `登入失敗（${err.code || err.message}）`;
+
+const cloud = {
+  enabled: !!firebaseConfig,
+  api: null,
+  user: null,
+  remote: null,
+  status: 'idle', // idle | syncing | synced | offline | error
+  timer: null,
+  pending: null,
+  loadError: false,
+
+  async init() {
+    $('#accountCard').hidden = !this.enabled;
+    if (!this.enabled) return;
+    const v = '10.12.2';
+    try {
+      const [app, auth, fs] = await Promise.all([
+        import(`https://www.gstatic.com/firebasejs/${v}/firebase-app.js`),
+        import(`https://www.gstatic.com/firebasejs/${v}/firebase-auth.js`),
+        import(`https://www.gstatic.com/firebasejs/${v}/firebase-firestore.js`),
+      ]);
+      const fbApp = app.initializeApp(firebaseConfig);
+      const a = auth.getAuth(fbApp);
+      a.languageCode = 'zh-TW';
+      this.api = { auth, fs, a, db: fs.getFirestore(fbApp), unsub: null };
+      auth.getRedirectResult(a).catch(err => toast(authMessage(err)));
+      auth.onAuthStateChanged(a, user => this.onUser(user));
+    } catch (err) {
+      console.error(err);
+      this.loadError = true; // 沒網路時載不到登入元件，網站照樣用手機裡的資料
+    }
+    this.renderPanel();
+  },
+
+  onUser(user) {
+    if (this.api.unsub) { this.api.unsub(); this.api.unsub = null; }
+    this.user = user;
+    this.remote = null;
+    if (!user) { this.setStatus('idle'); return; }
+
+    const last = localStorage.getItem(UID_KEY);
+    if (last && last !== user.uid) {
+      // 換了另一個帳號：不要把上一個人的資料混進來
+      state = emptyState();
+      saveLocal();
+      render();
+    } else if (!last && hasData(state) && !confirm('這台裝置上已經有資料，要一起存到這個帳號嗎？\n（按「取消」會改用帳號裡原本的資料）')) {
+      state = emptyState();
+      saveLocal();
+      render();
+    }
+    localStorage.setItem(UID_KEY, user.uid);
+
+    this.setStatus('syncing');
+    const { fs, db } = this.api;
+    this.api.unsub = fs.onSnapshot(fs.doc(db, 'users', user.uid), snap => {
+      const data = snap.exists() ? snap.data() : {};
+      this.remote = Object.fromEntries(KINDS.map(k => [k, data[k] || {}]));
+      if (mergeInto(state, this.remote)) { saveLocal(); render(); }
+      if (hasNewerThan(state, this.remote)) this.push(0);
+      else if (!snap.metadata.hasPendingWrites) this.setStatus('synced');
+    }, err => {
+      console.error(err);
+      this.setStatus('error');
+    });
+  },
+
+  // 本機有改動就上傳整份資料（稍微等一下，連續修改只傳一次）
+  push(delay = 800) {
+    if (!this.user || !this.remote) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), delay);
+  },
+
+  async flush() {
+    clearTimeout(this.timer);
+    if (!this.user) return;
+    const { fs, db } = this.api;
+    this.setStatus(navigator.onLine ? 'syncing' : 'offline');
+    const data = JSON.parse(JSON.stringify(state)); // 去掉 undefined，Firestore 不接受
+    this.pending = fs.setDoc(fs.doc(db, 'users', this.user.uid), { ...data, savedAt: Date.now() });
+    try {
+      await this.pending;
+      this.setStatus('synced');
+    } catch (err) {
+      console.error(err);
+      this.setStatus('error');
+    } finally {
+      this.pending = null;
+    }
+  },
+
+  async loginGoogle() {
+    const { auth, a } = this.api;
+    const provider = new auth.GoogleAuthProvider();
+    try {
+      await auth.signInWithPopup(a, provider);
+    } catch (err) {
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment') {
+        await auth.signInWithRedirect(a, provider);
+      } else if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+        console.error(err);
+        // iPhone 主畫面 App 偶爾開不了 Google 視窗，提示改用 Email
+        toast(authMessage(err) + '，可以改用 Email 登入');
+      }
+    }
+  },
+
+  async loginEmail(action) {
+    const f = $('#emailForm');
+    const email = f.email.value.trim();
+    const password = f.password.value;
+    const { auth, a } = this.api;
+    const msg = $('#emailMsg');
+    msg.hidden = true;
+    try {
+      if (action === 'reset') {
+        if (!email) { msg.hidden = false; msg.textContent = '先填 Email，再按「忘記密碼」'; return; }
+        await auth.sendPasswordResetEmail(a, email);
+        msg.hidden = false;
+        msg.textContent = `重設密碼的信寄到 ${email} 了，記得也看一下垃圾信件匣 📮`;
+        return;
+      }
+      if (action === 'signup') await auth.createUserWithEmailAndPassword(a, email, password);
+      else await auth.signInWithEmailAndPassword(a, email, password);
+    } catch (err) {
+      msg.hidden = false;
+      msg.textContent = authMessage(err);
+    }
+  },
+
+  async logout() {
+    const wipe = confirm('要順便清掉這台裝置上的資料嗎？\n資料都已經存在雲端，再登入就會回來。\n（不是自己的手機建議按「確定」）');
+    if (this.pending || this.timer) await this.flush();
+    await this.api.auth.signOut(this.api.a);
+    if (wipe) {
+      state = emptyState();
+      saveLocal();
+      localStorage.removeItem(UID_KEY);
+      render();
+    }
+    toast('已登出 👋');
+  },
+
+  setStatus(status) {
+    this.status = status;
+    if (view === 'settings') this.renderPanel();
+  },
+
+  renderPanel() {
+    const p = $('#accountPanel');
+    if (!this.enabled || !p) return;
+    if (this.loadError) {
+      p.innerHTML = '<p class="muted">連不上登入服務，資料先存在這台裝置。有網路時重新打開就好 📡</p>';
+      return;
+    }
+    if (!this.api) { p.innerHTML = '<p class="muted">載入中…</p>'; return; }
+    if (this.user) {
+      const label = {
+        idle: '', syncing: '☁️ 同步中…', synced: '✅ 已存到雲端', offline: '📡 沒有網路，連上後會自動上傳',
+        error: '⚠️ 同步失敗，稍後會再試',
+      }[this.status];
+      p.innerHTML = `<p class="muted">已登入 <b>${esc(this.user.email || this.user.displayName || '')}</b><br>${label}</p>
+        <p class="muted">換手機或在電腦上，用同一個帳號登入就能看到同一份資料。</p>
+        <button class="btn" id="logoutBtn">登出</button>`;
+      return;
+    }
+    p.innerHTML = `<p class="muted">登入後資料會存到雲端：換手機、刪掉 App 都不怕不見，手機和電腦也能看到同一份。不登入也可以照常使用。</p>
+      <button class="btn primary block" id="googleBtn">用 Google 帳號登入</button>
+      <div class="or">或用 Email</div>
+      <form id="emailForm" class="email-form" novalidate>
+        <input type="email" name="email" placeholder="Email" autocomplete="email" inputmode="email">
+        <input type="password" name="password" placeholder="密碼（至少 6 個字）" autocomplete="current-password">
+        <p class="warn" id="emailMsg" hidden></p>
+        <div class="row">
+          <button type="submit" class="btn primary" data-act="login">登入</button>
+          <button type="button" class="btn" data-act="signup">註冊新帳號</button>
+          <button type="button" class="link-btn" data-act="reset">忘記密碼</button>
+        </div>
+      </form>`;
+  },
+};
+
 // ---------- 存錢目標 ----------
 function openGoal() {
   $('#goalForm').amount.value = goalAmount() || '';
@@ -955,6 +1174,17 @@ $('#semesterClear').onclick = () => {
   $('#semesterForm').end.value = '';
 };
 $('#shareBtn').onclick = shareApp;
+$('#accountPanel').addEventListener('click', e => {
+  if (e.target.id === 'googleBtn') cloud.loginGoogle();
+  if (e.target.id === 'logoutBtn') cloud.logout();
+  const act = e.target.dataset.act;
+  if (act && act !== 'login') cloud.loginEmail(act);
+});
+$('#accountPanel').addEventListener('submit', e => {
+  e.preventDefault();
+  cloud.loginEmail('login');
+});
+window.addEventListener('online', () => cloud.push(0));
 
 $('#exportBtn').onclick = exportData;
 $('#importInput').onchange = e => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ''; };
@@ -971,3 +1201,4 @@ if ('serviceWorker' in navigator) {
 
 setTheme(document.documentElement.dataset.theme || 'aqua');
 render();
+cloud.init();

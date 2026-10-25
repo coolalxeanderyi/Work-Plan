@@ -227,6 +227,23 @@ main { max-width: 900px; margin: 0 auto; padding: 14px 16px; }
 .class-row .dot { margin-right: 0; }
 .class-row span:last-child { color: var(--muted); font-size: 13px; margin-left: auto; }
 
+/* ---------- 帳號 ---------- */
+.or {
+  display: flex; align-items: center; gap: 10px; margin: 14px 0 10px;
+  color: var(--muted); font-size: 12px; font-weight: 700;
+}
+.or::before, .or::after { content: ""; flex: 1; border-top: 2px dashed var(--border); }
+.email-form input {
+  display: block; width: 100%; margin-bottom: 8px; padding: 10px 12px;
+  border: 2px solid var(--border); border-radius: 14px; background: var(--bg);
+  font-size: 16px; font-weight: 600; outline: none;
+}
+.email-form input:focus { border-color: var(--primary); }
+.link-btn {
+  background: none; border: 0; color: var(--muted); font-size: 13px; font-weight: 700;
+  text-decoration: underline; cursor: pointer; margin-left: auto;
+}
+
 /* ---------- 存錢目標 ---------- */
 .goal-top { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
 .goal-pig { font-size: 44px; line-height: 1; animation: bob 2.4s ease-in-out infinite; }
