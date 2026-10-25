@@ -8,9 +8,10 @@ import { firebaseConfig } from './firebase-config.js';
 // ============================================================
 
 const STORAGE_KEY = 'workplan.v1';
-const COLORS = ['#ff8fab', '#ffb36b', '#ffd85e', '#8fd9a8', '#7cc6fe', '#b69cff', '#ff9e9e', '#86e3dc'];
+const COLORS = ['#7fd4e8', '#ff8fab', '#ffb36b', '#ffd85e', '#8fd9a8', '#b69cff', '#ff9e9e', '#a3b8ff'];
 const EMOJIS = ['☕', '🍰', '🍔', '🍜', '🧋', '📚', '✏️', '🛒', '👕', '💻', '🎨', '🎤', '🐶', '🌸', '🚲', '📦', '🏥', '⭐'];
-const THEME_COLORS = { strawberry: '#f2638f', mint: '#2fae7a', sky: '#4a96f0', lavender: '#8f6cf0' };
+const THEME_KEY = 'workplan.theme.v2';
+const THEME_COLORS = { aqua: '#3fb4d0', strawberry: '#f2638f', mint: '#2fae7a', lavender: '#8f6cf0' };
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -624,8 +625,8 @@ $('#themes').onclick = e => {
 };
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  document.querySelector('meta[name=theme-color]').content = THEME_COLORS[theme] || THEME_COLORS.strawberry;
-  try { localStorage.setItem('workplan.theme', theme); } catch { /* 無痕模式存不了也沒關係 */ }
+  document.querySelector('meta[name=theme-color]').content = THEME_COLORS[theme] || THEME_COLORS.aqua;
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* 無痕模式存不了也沒關係 */ }
 }
 $('#addJob').onclick = () => openJobForm(null);
 $('#jobDelete').onclick = () => {
@@ -648,6 +649,6 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-setTheme(document.documentElement.dataset.theme || 'strawberry');
+setTheme(document.documentElement.dataset.theme || 'aqua');
 render();
 sync.init();

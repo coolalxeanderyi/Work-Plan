@@ -1,5 +1,5 @@
 // 離線快取：先回快取讓畫面秒開，同時在背景抓新版
-const CACHE = 'workplan-v2';
+const CACHE = 'workplan-v3';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'firebase-config.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => {
