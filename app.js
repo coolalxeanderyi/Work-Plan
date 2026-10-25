@@ -2,7 +2,7 @@ import { firebaseConfig } from './firebase-config.js';
 
 // ============================================================
 // 資料結構
-//   state.jobs[id]   = { id, name, emoji, color, wage, breakMin, start, end, updatedAt, deleted? }
+//   state.jobs[id]   = { id, name, emoji, color, wage, breakMin, updatedAt, deleted? }
 //   state.shifts[id] = { id, jobId, date, start, end, breakMin, wage, note, updatedAt, deleted? }
 //   state.settings.goal = { id: 'goal', amount, updatedAt }   每月存錢目標
 // 刪除只標記 deleted（墓碑），多台裝置同步時才不會把刪掉的資料救回來。
@@ -383,12 +383,16 @@ function openShiftForm(shift, date) {
   updatePreview();
   $('#shiftDialog').showModal();
 }
+// 每次上班時間不固定，所以帶入「這份工作最近一次排的班」的時間，第一次就留白
 function applyJobDefaults() {
   const f = $('#shiftForm');
   const j = state.jobs[f.jobId.value];
   if (!j) return;
-  f.start.value = j.start || '09:00';
-  f.end.value = j.end || '17:00';
+  const last = Object.values(state.shifts)
+    .filter(s => !s.deleted && s.jobId === j.id)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  f.start.value = last?.start || '';
+  f.end.value = last?.end || '';
   f.breakMin.value = j.breakMin ?? 0;
   f.wage.value = j.wage;
 }
@@ -451,8 +455,6 @@ function openJobForm(job) {
   f.name.value = job?.name || '';
   f.wage.value = job?.wage ?? 190;
   f.breakMin.value = job?.breakMin ?? 0;
-  f.start.value = job?.start || '';
-  f.end.value = job?.end || '';
   const used = new Set(jobs().map(j => j.color));
   pickedColor = job?.color || COLORS.find(c => !used.has(c)) || COLORS[0];
   const usedEmoji = new Set(jobs().map(j => j.emoji));
@@ -476,7 +478,7 @@ function saveJob(e) {
   upsert('jobs', {
     ...(editingJob || { id: newId() }),
     name, emoji: pickedEmoji, color: pickedColor, wage: Number(f.wage.value) || 0,
-    breakMin: Number(f.breakMin.value) || 0, start: f.start.value, end: f.end.value,
+    breakMin: Number(f.breakMin.value) || 0,
   });
   $('#jobDialog').close();
   toast(editingJob ? '更新好了 ✨' : `${pickedEmoji} 新增工作成功`);
