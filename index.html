@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>兼職排班</title>
+  <meta name="description" content="隨時隨地管理兼職班表、工時與薪資">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="兼職排班">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn" id="prevMonth" aria-label="上個月">‹</button>
+    <button class="month-title" id="monthTitle" aria-label="回到本月"></button>
+    <button class="icon-btn" id="nextMonth" aria-label="下個月">›</button>
+    <span class="sync-dot" id="syncDot" title="本機模式"></span>
+  </header>
+
+  <main id="main">
+    <section id="view-calendar" class="view">
+      <div class="month-summary" id="calSummary"></div>
+      <div class="weekdays">
+        <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+      </div>
+      <div class="calendar" id="calendar"></div>
+    </section>
+
+    <section id="view-list" class="view" hidden>
+      <div id="shiftList"></div>
+    </section>
+
+    <section id="view-stats" class="view" hidden>
+      <div id="stats"></div>
+    </section>
+
+    <section id="view-settings" class="view" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2>工作 / 雇主</h2>
+          <button class="btn small" id="addJob">＋ 新增</button>
+        </div>
+        <ul class="job-list" id="jobList"></ul>
+      </div>
+
+      <div class="card">
+        <h2>雲端同步</h2>
+        <div id="syncPanel"></div>
+      </div>
+
+      <div class="card">
+        <h2>備份</h2>
+        <p class="muted">把所有資料存成一個檔案，或從檔案還原。</p>
+        <div class="row">
+          <button class="btn" id="exportBtn">匯出備份</button>
+          <label class="btn">匯入備份<input type="file" id="importInput" accept="application/json" hidden></label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <button class="fab" id="fab" aria-label="新增班次">＋</button>
+
+  <nav class="tabbar">
+    <button data-view="calendar" class="active"><span>📅</span>月曆</button>
+    <button data-view="list"><span>📋</span>清單</button>
+    <button data-view="stats"><span>💰</span>統計</button>
+    <button data-view="settings"><span>⚙️</span>設定</button>
+  </nav>
+
+  <!-- 某一天的班次 -->
+  <dialog id="dayDialog">
+    <div class="dialog-head">
+      <h3 id="dayTitle"></h3>
+      <button class="icon-btn" data-close aria-label="關閉">✕</button>
+    </div>
+    <div id="dayShifts"></div>
+    <button class="btn primary block" id="dayAdd">＋ 新增這天的班</button>
+  </dialog>
+
+  <!-- 班次表單 -->
+  <dialog id="shiftDialog">
+    <form id="shiftForm" method="dialog">
+      <div class="dialog-head">
+        <h3 id="shiftFormTitle">新增班次</h3>
+        <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
+      </div>
+      <label>工作<select name="jobId" required></select></label>
+      <label>日期<input type="date" name="date" required></label>
+      <div class="grid2">
+        <label>開始<input type="time" name="start" required></label>
+        <label>結束<input type="time" name="end" required></label>
+      </div>
+      <div class="grid2">
+        <label>休息（分鐘）<input type="number" name="breakMin" min="0" step="5" inputmode="numeric"></label>
+        <label>時薪<input type="number" name="wage" min="0" step="1" inputmode="decimal"></label>
+      </div>
+      <label>備註<input type="text" name="note" maxlength="100" placeholder="選填"></label>
+      <label class="repeat-row" id="repeatRow">之後每週重複
+        <select name="repeat">
+          <option value="0">不重複</option>
+          <option value="1">1 週</option>
+          <option value="2">2 週</option>
+          <option value="3">3 週</option>
+          <option value="4">4 週</option>
+          <option value="8">8 週</option>
+          <option value="12">12 週</option>
+        </select>
+      </label>
+      <p class="muted" id="shiftPreview"></p>
+      <div class="row end">
+        <button type="button" class="btn danger" id="shiftDelete">刪除</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 工作表單 -->
+  <dialog id="jobDialog">
+    <form id="jobForm" method="dialog">
+      <div class="dialog-head">
+        <h3 id="jobFormTitle">新增工作</h3>
+        <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
+      </div>
+      <label>名稱<input type="text" name="name" required maxlength="30" placeholder="例如：咖啡店"></label>
+      <label>顏色<div class="swatches" id="swatches"></div></label>
+      <div class="grid2">
+        <label>時薪<input type="number" name="wage" min="0" step="1" inputmode="decimal" required></label>
+        <label>預設休息（分鐘）<input type="number" name="breakMin" min="0" step="5" inputmode="numeric"></label>
+      </div>
+      <div class="grid2">
+        <label>預設開始<input type="time" name="start"></label>
+        <label>預設結束<input type="time" name="end"></label>
+      </div>
+      <div class="row end">
+        <button type="button" class="btn danger" id="jobDelete">刪除</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
