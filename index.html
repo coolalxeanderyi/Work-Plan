@@ -35,6 +35,14 @@
       <div class="calendar" id="calendar"></div>
     </section>
 
+    <section id="view-timetable" class="view" hidden>
+      <div class="tt-bar">
+        <button class="btn small" id="semesterBtn">🎓 設定學期日期</button>
+        <button class="btn small primary" id="addClassBtn">＋ 新增課程</button>
+      </div>
+      <div id="timetable"></div>
+    </section>
+
     <section id="view-list" class="view" hidden>
       <div id="shiftList"></div>
     </section>
@@ -63,6 +71,12 @@
       </div>
 
       <div class="card">
+        <h2>💌 分享給朋友</h2>
+        <p class="muted">把網址傳給朋友，大家都能用。每個人的課表和班表只存在自己的手機裡，不會互相看到 🔒</p>
+        <button class="btn primary" id="shareBtn">分享網址</button>
+      </div>
+
+      <div class="card">
         <h2>💾 備份</h2>
         <p class="muted">資料存在這台裝置裡。把所有資料存成一個檔案，換手機或想在電腦上看時，用「匯入備份」還原。</p>
         <div class="row">
@@ -77,6 +91,7 @@
 
   <nav class="tabbar">
     <button data-view="calendar" class="active"><span>🗓️</span>月曆</button>
+    <button data-view="timetable"><span>📖</span>課表</button>
     <button data-view="list"><span>📝</span>清單</button>
     <button data-view="stats"><span>🐷</span>存錢</button>
     <button data-view="settings"><span>🎀</span>設定</button>
@@ -143,6 +158,48 @@
       <label>時薪<input type="number" name="wage" min="0" step="1" inputmode="decimal" required></label>
       <div class="row end">
         <button type="button" class="btn danger" id="jobDelete">刪除</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 課程表單 -->
+  <dialog id="classDialog">
+    <form id="classForm" method="dialog">
+      <div class="dialog-head">
+        <h3 id="classFormTitle">新增課程</h3>
+        <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
+      </div>
+      <label>課程名稱<input type="text" name="name" required maxlength="30" placeholder="例如：微積分"></label>
+      <label>星期幾上課（可以選很多天）<div class="weekday-pick" id="weekdayPick"></div></label>
+      <div class="grid2">
+        <label>上課<input type="time" name="start" required></label>
+        <label>下課<input type="time" name="end" required></label>
+      </div>
+      <label>教室<input type="text" name="room" maxlength="30" placeholder="選填，例如：理學院 201"></label>
+      <label>顏色<div class="swatches" id="classSwatches"></div></label>
+      <p class="warn" id="classWarn" hidden></p>
+      <div class="row end">
+        <button type="button" class="btn danger" id="classDelete">刪除</button>
+        <button type="submit" class="btn primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 學期日期 -->
+  <dialog id="semesterDialog">
+    <form id="semesterForm" method="dialog">
+      <div class="dialog-head">
+        <h3>🎓 學期日期</h3>
+        <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
+      </div>
+      <p class="muted">設定後，課只會出現在學期期間，放寒暑假就不會擋到排班。不設定就是每週都有課。</p>
+      <div class="grid2">
+        <label>開學<input type="date" name="start"></label>
+        <label>期末結束<input type="date" name="end"></label>
+      </div>
+      <div class="row end">
+        <button type="button" class="btn danger" id="semesterClear">清除</button>
         <button type="submit" class="btn primary">儲存</button>
       </div>
     </form>

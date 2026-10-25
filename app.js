@@ -2,12 +2,14 @@
 // 資料結構
 //   state.jobs[id]   = { id, name, emoji, color, wage, updatedAt, deleted? }
 //   state.shifts[id] = { id, jobId, date, start, end, breakMin, wage, note, updatedAt, deleted? }
+//   state.classes[id] = { id, name, weekday, start, end, room, color, updatedAt, deleted? }   每週固定的課
 //   state.settings.goal = { id: 'goal', amount, updatedAt }   每月存錢目標
+//   state.settings.semester = { id: 'semester', start, end, updatedAt }   學期日期，課只在這段期間出現
 // 刪除只標記 deleted（墓碑），匯入舊備份時才不會把刪掉的資料救回來。
 // ============================================================
 
 const STORAGE_KEY = 'workplan.v1';
-const KINDS = ['jobs', 'shifts', 'settings'];
+const KINDS = ['jobs', 'shifts', 'classes', 'settings'];
 const COLORS = ['#7fd4e8', '#ff8fab', '#ffb36b', '#ffd85e', '#8fd9a8', '#b69cff', '#ff9e9e', '#a3b8ff'];
 const EMOJIS = ['☕', '🍰', '🍔', '🍜', '🧋', '📚', '✏️', '🛒', '👕', '💻', '🎨', '🎤', '🐶', '🌸', '🚲', '📦', '🏥', '⭐'];
 const THEME_KEY = 'workplan.theme.v2';
@@ -19,6 +21,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 let state = loadLocal();
 let view = 'calendar';
 let cursor = startOfMonth(new Date());
+let weekCursor = mondayOf(new Date());
 let openDay = null;
 
 // ---------- 工具 ----------
@@ -29,6 +32,8 @@ function pad(n) { return String(n).padStart(2, '0'); }
 function ymd(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
 function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function mondayOf(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function fromMin(m) { m = ((m % 1440) + 1440) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
 function esc(s) {
@@ -73,6 +78,21 @@ function clashesOf(s, ignoreId = s.id) {
     return a0 < b1 && b0 < a1;
   });
 }
+// 跟這個班時間重疊的課（跨夜班也會檢查隔天早上的課）
+function classClashesOf(s) {
+  const [a0, a1] = shiftSpan(s);
+  const d = parseYmd(s.date);
+  const out = [];
+  for (const x of [d, addDays(d, 1)]) {
+    const date = ymd(x);
+    const base = dayNum(date) * 1440;
+    for (const c of classesOn(date)) {
+      if (a0 < base + toMin(c.end) && base + toMin(c.start) < a1) out.push({ ...c, date });
+    }
+  }
+  return out;
+}
+const hasClash = s => clashesOf(s).length > 0 || classClashesOf(s).length > 0;
 const goalAmount = () => Number(state.settings.goal?.amount) || 0;
 const monthKey = date => date.slice(0, 7);
 function monthPay(key) {
@@ -98,6 +118,17 @@ const jobOf = id => (state.jobs[id]?.name ? state.jobs[id] : { name: '（已刪�
 const shiftsOn = date => Object.values(state.shifts)
   .filter(s => !s.deleted && s.date === date)
   .sort((a, b) => a.start.localeCompare(b.start));
+function inSemester(date) {
+  const sem = state.settings.semester;
+  return !(sem?.start && date < sem.start) && !(sem?.end && date > sem.end);
+}
+const classesOn = date => {
+  if (!inSemester(date)) return [];
+  const w = parseYmd(date).getDay();
+  return Object.values(state.classes)
+    .filter(c => !c.deleted && c.weekday === w)
+    .sort((a, b) => a.start.localeCompare(b.start));
+};
 function shiftsInMonth(month) {
   const prefix = `${month.getFullYear()}-${pad(month.getMonth() + 1)}-`;
   return Object.values(state.shifts)
@@ -109,9 +140,9 @@ function shiftsInMonth(month) {
 function loadLocal() {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (data && data.jobs && data.shifts) return { settings: {}, ...data };
+    if (data && data.jobs && data.shifts) return { classes: {}, settings: {}, ...data };
   } catch { /* 沒有資料或格式錯誤時重新開始 */ }
-  return { jobs: {}, shifts: {}, settings: {} };
+  return { jobs: {}, shifts: {}, classes: {}, settings: {} };
 }
 function saveLocal() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { toast('無法儲存到本機 😢'); }
@@ -153,11 +184,17 @@ function mergeInto(target, incoming) {
 
 // ---------- 畫面 ----------
 function render() {
-  $('#monthTitle').textContent = `${cursor.getFullYear()} 年 ${cursor.getMonth() + 1} 月`;
+  if (view === 'timetable') {
+    const end = addDays(weekCursor, 6);
+    $('#monthTitle').textContent = `${weekCursor.getMonth() + 1}/${weekCursor.getDate()} – ${end.getMonth() + 1}/${end.getDate()}`;
+  } else {
+    $('#monthTitle').textContent = `${cursor.getFullYear()} 年 ${cursor.getMonth() + 1} 月`;
+  }
   $$('.view').forEach(v => { v.hidden = v.id !== `view-${view}`; });
   $$('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   $('#fab').hidden = view === 'settings';
   if (view === 'calendar') renderCalendar();
+  if (view === 'timetable') renderTimetable();
   if (view === 'list') renderList();
   if (view === 'stats') renderStats();
   if (view === 'settings') renderSettings();
@@ -177,13 +214,19 @@ function renderGreeting() {
     : h < 14 ? ['🍙', '午安～記得吃飯']
     : h < 18 ? ['🌼', '下午好！']
     : ['🌛', '晚上好～'];
-  const today = shiftsOn(ymd(new Date()));
+  const todayKey = ymd(new Date());
+  const shifts = shiftsOn(todayKey);
+  const classes = classesOn(todayKey);
+  const items = [
+    ...classes.map(c => ({ start: c.start, name: c.name })),
+    ...shifts.map(x => ({ start: x.start, name: jobOf(x.jobId).name })),
+  ].sort((a, b) => a.start.localeCompare(b.start));
   let sub;
-  if (!jobs().length) sub = '先按右下角的 ＋ 新增一份工作吧 ✨';
-  else if (!today.length) sub = '今天沒有班，好好休息 🛌';
+  if (!jobs().length && !Object.keys(state.classes).length) sub = '先按右下角的 ＋ 新增一份工作吧 ✨';
+  else if (!items.length) sub = '今天沒課也沒班，好好休息 🛌';
   else {
-    const first = today[0];
-    sub = `今天有 ${today.length} 個班，${first.start} 開始 ${jobOf(first.jobId).name}，加油 💪`;
+    const parts = [classes.length && `${classes.length} 堂課`, shifts.length && `${shifts.length} 個班`].filter(Boolean);
+    sub = `今天有 ${parts.join('、')}，${items[0].start} 開始 ${items[0].name}，加油 💪`;
   }
   $('#greeting').innerHTML = `<span class="face">${face}</span>
     <div><div class="hello">${esc(hello)}</div><div class="sub">${esc(sub)}</div></div>`;
@@ -216,7 +259,7 @@ function renderCalendar() {
       return `<div class="chip" style="background:${esc(j.color)};color:${textOn(j.color)}">${esc(emojiOf(j))}<span class="t"> ${esc(s.start)}</span><span class="n"> ${esc(j.name)}</span></div>`;
     }).join('');
     const more = list.length > 3 ? `<div class="more">+${list.length - 3}</div>` : '';
-    const clash = list.some(s => clashesOf(s).length) ? '<span class="clash" title="撞班">⚠️</span>' : '';
+    const clash = list.some(hasClash) ? '<span class="clash" title="撞班或撞課">⚠️</span>' : '';
     html += `<button class="${cls.join(' ')}" data-date="${key}"><span class="num">${d.getDate()}</span>${clash}${chips}${more}</button>`;
   }
   $('#calendar').innerHTML = html;
@@ -228,7 +271,7 @@ function shiftItemHtml(s) {
   return `<button class="shift-item" data-shift="${s.id}">
     <span class="bubble" style="background:${esc(j.color)}55">${esc(emojiOf(j))}</span>
     <span class="info">
-      <div class="title">${esc(j.name)}${clashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞班</span>' : ''}</div>
+      <div class="title">${esc(j.name)}${clashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞班</span>' : ''}${classClashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞課</span>' : ''}</div>
       <div class="sub">${esc(s.start)}–${esc(s.end)} · ${hours(shiftMinutes(s))} 小時${note}</div>
     </span>
     <span class="pay">${money(shiftPay(s))}</span>
@@ -329,7 +372,13 @@ function showDay(date) {
 function renderDay() {
   $('#dayTitle').textContent = dateLabel(openDay);
   const list = shiftsOn(openDay);
-  $('#dayShifts').innerHTML = list.length ? list.map(shiftItemHtml).join('') : '<p class="muted">這天沒有班，可以放空 ☁️</p>';
+  const classes = classesOn(openDay);
+  const classHtml = classes.length ? `<div class="day-classes">${classes.map(c => `
+    <button class="class-row" data-class="${c.id}">
+      <span class="dot" style="background:${esc(c.color)}"></span>📖 <b>${esc(c.name)}</b>
+      <span>${esc(c.start)}–${esc(c.end)}${c.room ? ' · ' + esc(c.room) : ''}</span>
+    </button>`).join('')}</div>` : '';
+  $('#dayShifts').innerHTML = classHtml + (list.length ? list.map(shiftItemHtml).join('') : '<p class="muted">這天沒有班，可以放空 ☁️</p>');
 }
 
 // ---------- 班次表單 ----------
@@ -397,11 +446,20 @@ function updatePreview() {
   const overnight = toMin(s.end) <= toMin(s.start) ? '（跨夜）' : '';
   $('#shiftPreview').textContent = `共 ${hours(shiftMinutes(s))} 小時${overnight}，預估 ${money(shiftPay(s))}`;
   if (!s.date) return;
-  const clashes = clashesOf({ ...s, id: editingShift?.id });
-  if (clashes.length) {
+  const cur = { ...s, id: editingShift?.id };
+  const dayPrefix = date => (date === s.date ? '' : dateLabel(date) + ' ');
+  const lines = [];
+  const shiftClashes = clashesOf(cur);
+  if (shiftClashes.length) {
+    lines.push('⚠️ 撞班了：' + shiftClashes.map(o => `${dayPrefix(o.date)}${jobOf(o.jobId).name} ${o.start}–${o.end}`).join('、'));
+  }
+  const classClashes = classClashesOf(cur);
+  if (classClashes.length) {
+    lines.push('📖 撞課了：' + classClashes.map(c => `${dayPrefix(c.date)}${c.name} ${c.start}–${c.end}`).join('、'));
+  }
+  if (lines.length) {
     warn.hidden = false;
-    warn.textContent = '⚠️ 撞班了：' + clashes.map(o =>
-      `${o.date === s.date ? '' : dateLabel(o.date) + ' '}${jobOf(o.jobId).name} ${o.start}–${o.end}`).join('、');
+    warn.textContent = lines.join('\n');
   }
 }
 function saveShift(e) {
@@ -410,8 +468,8 @@ function saveShift(e) {
   if (!data.date || !data.start || !data.end) return;
   const repeat = editingShift ? 0 : Number($('#shiftForm').repeat.value) || 0;
   const dates = Array.from({ length: repeat + 1 }, (_, i) => ymd(addDays(parseYmd(data.date), i * 7)));
-  const clashCount = dates.filter(date => clashesOf({ ...data, date, id: editingShift?.id }).length).length;
-  if (clashCount && !confirm(`⚠️ 有 ${clashCount} 個班跟其他班撞到了，還是要儲存嗎？`)) return;
+  const clashCount = dates.filter(date => hasClash({ ...data, date, id: editingShift?.id })).length;
+  if (clashCount && !confirm(`⚠️ 有 ${clashCount} 個班跟其他班或上課時間撞到了，還是要儲存嗎？`)) return;
 
   localStorage.setItem('workplan.lastJob', data.jobId);
   const before = Object.fromEntries(dates.map(d => [monthKey(d), monthPay(monthKey(d))]));
@@ -542,8 +600,8 @@ function doCopyWeek(e) {
   e.preventDefault();
   const plan = copyPlan();
   if (!plan?.fresh.length) return;
-  const clashCount = plan.fresh.filter(s => clashesOf(s, null).length).length;
-  if (clashCount && !confirm(`⚠️ 其中 ${clashCount} 個班會跟原本的班撞到，還是要複製嗎？`)) return;
+  const clashCount = plan.fresh.filter(s => clashesOf(s, null).length || classClashesOf(s).length).length;
+  if (clashCount && !confirm(`⚠️ 其中 ${clashCount} 個班會跟原本的班或上課撞到，還是要複製嗎？`)) return;
   const before = Object.fromEntries(plan.fresh.map(s => [monthKey(s.date), monthPay(monthKey(s.date))]));
   const now = Date.now();
   const ids = plan.fresh.map(s => {
@@ -554,9 +612,181 @@ function doCopyWeek(e) {
   commit();
   $('#copyDialog').close();
   // 複製過來的班之間也可能互撞（例如來源那週本來就撞班）
-  const clashed = ids.filter(id => clashesOf(state.shifts[id]).length).length;
-  toast(`複製了 ${plan.fresh.length} 個班 📋` + (clashed ? `，其中 ${clashed} 個撞班 ⚠️` : ''));
+  const clashed = ids.filter(id => hasClash(state.shifts[id])).length;
+  toast(`複製了 ${plan.fresh.length} 個班 📋` + (clashed ? `，其中 ${clashed} 個撞到了 ⚠️` : ''));
   celebrateGoal(before);
+}
+
+// ---------- 課表 ----------
+const HOUR_PX = 48;
+function renderTimetable() {
+  const sem = state.settings.semester;
+  const short = date => { const d = parseYmd(date); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  $('#semesterBtn').textContent = sem?.start || sem?.end
+    ? `🎓 學期 ${sem.start ? short(sem.start) : '…'} ~ ${sem.end ? short(sem.end) : '…'}`
+    : '🎓 設定學期日期';
+
+  const today = ymd(new Date());
+  const cols = Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(weekCursor, i);
+    const date = ymd(d);
+    const items = [
+      ...classesOn(date).map(c => ({
+        kind: 'class', id: c.id, name: c.name, label: c.start, start: toMin(c.start), end: toMin(c.end), color: c.color, emoji: '📖',
+      })),
+      ...shiftsOn(date).map(s => {
+        const j = jobOf(s.jobId);
+        const end = toMin(s.end) <= toMin(s.start) ? 1440 : toMin(s.end);
+        return { kind: 'shift', id: s.id, name: j.name, label: s.start, start: toMin(s.start), end, color: j.color, emoji: emojiOf(j), clash: hasClash(s) };
+      }),
+    ];
+    // 前一天的跨夜班，後半段畫在這一天
+    for (const s of shiftsOn(ymd(addDays(d, -1)))) {
+      if (toMin(s.end) <= toMin(s.start) && toMin(s.end) > 0) {
+        const j = jobOf(s.jobId);
+        items.push({ kind: 'shift', id: s.id, name: j.name, label: '↪', start: 0, end: toMin(s.end), color: j.color, emoji: emojiOf(j), clash: hasClash(s) });
+      }
+    }
+    // 時間重疊的並排顯示
+    items.sort((a, b) => a.start - b.start);
+    const lanes = [];
+    for (const it of items) {
+      let lane = lanes.findIndex(end => end <= it.start);
+      if (lane === -1) lane = lanes.push(0) - 1;
+      lanes[lane] = it.end;
+      it.lane = lane;
+    }
+    items.forEach(it => { it.lanes = lanes.length; });
+    return { d, date, items };
+  });
+
+  const all = cols.flatMap(c => c.items);
+  let h0 = 8, h1 = 22;
+  if (all.length) {
+    h0 = Math.min(h0, Math.floor(Math.min(...all.map(i => i.start)) / 60));
+    h1 = Math.max(h1, Math.ceil(Math.max(...all.map(i => i.end)) / 60));
+  }
+  const hourLabels = Array.from({ length: h1 - h0 }, (_, i) =>
+    `<span style="top:${i * HOUR_PX}px">${h0 + i}</span>`).join('');
+
+  const block = it => {
+    const top = (it.start - h0 * 60) / 60 * HOUR_PX;
+    const height = Math.max(18, (it.end - it.start) / 60 * HOUR_PX - 2);
+    const style = `top:${top}px;height:${height}px;left:${it.lane / it.lanes * 100}%;width:calc(${100 / it.lanes}% - 2px);`
+      + (it.kind === 'class'
+        ? `background:${esc(it.color)}40;border-left:3px solid ${esc(it.color)}`
+        : `background:${esc(it.color)};color:${textOn(it.color)}`);
+    const attr = it.kind === 'class' ? `data-class="${it.id}"` : `data-shift="${it.id}"`;
+    return `<button class="tt-item ${it.kind}" ${attr} style="${style}">
+      <span class="nm">${it.clash ? '⚠️' : esc(it.emoji)}${esc(it.name)}</span><span class="tm">${esc(it.label)}</span>
+    </button>`;
+  };
+
+  const empty = Object.values(state.classes).some(c => !c.deleted) ? ''
+    : '<p class="tt-tip">還沒有課，按「＋ 新增課程」把課表加進來 📖<br>有空的時段直接點一下，就能排班喔</p>';
+
+  $('#timetable').innerHTML = `${empty}
+    <div class="tt">
+      <div class="tt-head"><span></span>${cols.map(c => `
+        <span class="${c.date === today ? 'today' : ''}">${WEEK[c.d.getDay()]}<b>${c.d.getDate()}</b></span>`).join('')}
+      </div>
+      <div class="tt-body" style="height:${(h1 - h0) * HOUR_PX}px;--hour:${HOUR_PX}px" data-h0="${h0}">
+        <div class="tt-hours">${hourLabels}</div>
+        ${cols.map(c => `<div class="tt-col${c.date === today ? ' today' : ''}" data-tt-date="${c.date}">${c.items.map(block).join('')}</div>`).join('')}
+      </div>
+    </div>
+    <p class="muted tt-legend"><span class="lg class"></span>上課　<span class="lg shift"></span>打工　點空白處可以直接排班</p>`;
+}
+
+// 點課表空白處：用那個時段開新班
+function addShiftAt(date, startMin) {
+  openShiftForm(null, date);
+  if (!$('#shiftDialog').open) return;
+  const f = $('#shiftForm');
+  const dur = f.start.value && f.end.value ? ((toMin(f.end.value) - toMin(f.start.value) + 1440) % 1440 || 240) : 240;
+  f.start.value = fromMin(startMin);
+  f.end.value = fromMin(startMin + dur);
+  updatePreview();
+}
+
+let editingClass = null;
+let pickedDays = new Set();
+let pickedClassColor = COLORS[0];
+function openClassForm(c) {
+  editingClass = c;
+  const f = $('#classForm');
+  f.name.value = c?.name || '';
+  f.start.value = c?.start || '';
+  f.end.value = c?.end || '';
+  f.room.value = c?.room || '';
+  pickedDays = new Set(c ? [c.weekday] : []);
+  const usedColors = new Set(Object.values(state.classes).filter(x => !x.deleted).map(x => x.color));
+  pickedClassColor = c?.color || COLORS.find(x => !usedColors.has(x)) || COLORS[0];
+  renderClassPickers();
+  $('#classWarn').hidden = true;
+  $('#classDelete').hidden = !c;
+  $('#classFormTitle').textContent = c ? '編輯課程' : '新增課程';
+  $('#classDialog').showModal();
+}
+function renderClassPickers() {
+  // 學生習慣週一開始
+  $('#weekdayPick').innerHTML = [1, 2, 3, 4, 5, 6, 0].map(w =>
+    `<button type="button" data-weekday="${w}" class="${pickedDays.has(w) ? 'selected' : ''}">${WEEK[w]}</button>`).join('');
+  $('#classSwatches').innerHTML = COLORS.map(c =>
+    `<button type="button" data-color="${c}" class="${c === pickedClassColor ? 'selected' : ''}" style="background:${c}" aria-label="顏色 ${c}"></button>`).join('');
+}
+function saveClass(e) {
+  e.preventDefault();
+  const f = $('#classForm');
+  const warn = $('#classWarn');
+  const name = f.name.value.trim();
+  if (!name || !f.start.value || !f.end.value) return;
+  if (!pickedDays.size) { warn.hidden = false; warn.textContent = '請選擇星期幾上課 📅'; return; }
+  if (toMin(f.end.value) <= toMin(f.start.value)) { warn.hidden = false; warn.textContent = '下課時間要比上課時間晚喔 ⏰'; return; }
+  const base = { name, start: f.start.value, end: f.end.value, room: f.room.value.trim(), color: pickedClassColor };
+  const days = [...pickedDays];
+  const now = Date.now();
+  if (editingClass) {
+    state.classes[editingClass.id] = { ...editingClass, ...base, weekday: days.shift(), updatedAt: now };
+  }
+  for (const weekday of days) {
+    const id = newId();
+    state.classes[id] = { id, ...base, weekday, updatedAt: now };
+  }
+  commit();
+  $('#classDialog').close();
+  toast(editingClass ? '課程更新好了 📖' : `加入 ${pickedDays.size} 堂課 📖`);
+}
+
+function openSemester() {
+  const sem = state.settings.semester;
+  $('#semesterForm').start.value = sem?.start || '';
+  $('#semesterForm').end.value = sem?.end || '';
+  $('#semesterDialog').showModal();
+}
+function saveSemester(e) {
+  e.preventDefault();
+  const f = $('#semesterForm');
+  if (f.start.value && f.end.value && f.end.value < f.start.value) { toast('結束日要在開始日之後喔 🤔'); return; }
+  state.settings.semester = { id: 'semester', start: f.start.value, end: f.end.value, updatedAt: Date.now() };
+  commit();
+  $('#semesterDialog').close();
+  toast(f.start.value || f.end.value ? '學期日期設定好了 🎓' : '已清除學期日期');
+}
+
+// ---------- 分享 ----------
+async function shareApp() {
+  const url = location.origin + location.pathname;
+  if (navigator.share) {
+    try { await navigator.share({ title: '兼職排班', text: '我在用這個排打工和課表，超可愛 🫧', url }); } catch { /* 使用者取消 */ }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('網址複製好了，貼給朋友吧 💌');
+  } catch {
+    prompt('複製這個網址傳給朋友：', url);
+  }
 }
 
 // ---------- 存錢目標 ----------
@@ -604,11 +834,17 @@ function toast(msg) {
 }
 
 // ---------- 事件 ----------
-$('#prevMonth').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1); render(); };
-$('#nextMonth').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1); render(); };
-$('#monthTitle').onclick = () => { cursor = startOfMonth(new Date()); render(); };
+function step(n) {
+  if (view === 'timetable') weekCursor = addDays(weekCursor, 7 * n);
+  else cursor = new Date(cursor.getFullYear(), cursor.getMonth() + n, 1);
+  render();
+}
+$('#prevMonth').onclick = () => step(-1);
+$('#nextMonth').onclick = () => step(1);
+$('#monthTitle').onclick = () => { cursor = startOfMonth(new Date()); weekCursor = mondayOf(new Date()); render(); };
 $$('.tabbar button').forEach(b => b.onclick = () => { view = b.dataset.view; render(); window.scrollTo(0, 0); });
 $('#fab').onclick = () => {
+  if (view === 'timetable') { openClassForm(null); return; }
   const today = new Date();
   const sameMonth = today.getFullYear() === cursor.getFullYear() && today.getMonth() === cursor.getMonth();
   openShiftForm(null, ymd(sameMonth ? today : cursor));
@@ -623,6 +859,12 @@ document.addEventListener('click', e => {
   if (item) {
     if ($('#dayDialog').open) $('#dayDialog').close();
     openShiftForm(state.shifts[item.dataset.shift]);
+    return;
+  }
+  const cls = e.target.closest('[data-class]');
+  if (cls) {
+    if ($('#dayDialog').open) $('#dayDialog').close();
+    openClassForm(state.classes[cls.dataset.class]);
     return;
   }
   const job = e.target.closest('[data-job]');
@@ -678,6 +920,41 @@ $('#copyForm').addEventListener('input', updateCopyPreview);
 $('#copyForm').addEventListener('submit', doCopyWeek);
 $('#goalForm').addEventListener('submit', saveGoal);
 $('#stats').addEventListener('click', e => { if (e.target.id === 'goalBtn') openGoal(); });
+
+$('#timetable').addEventListener('click', e => {
+  const col = e.target.closest('[data-tt-date]');
+  if (!col || e.target.closest('.tt-item')) return;
+  const h0 = Number(col.parentElement.dataset.h0);
+  const y = e.clientY - col.getBoundingClientRect().top;
+  addShiftAt(col.dataset.ttDate, (h0 + Math.floor(y / HOUR_PX)) * 60);
+});
+$('#addClassBtn').onclick = () => openClassForm(null);
+$('#semesterBtn').onclick = openSemester;
+$('#classForm').addEventListener('submit', saveClass);
+$('#weekdayPick').onclick = e => {
+  const w = e.target.dataset.weekday;
+  if (w === undefined) return;
+  const n = Number(w);
+  if (pickedDays.has(n)) pickedDays.delete(n); else pickedDays.add(n);
+  $('#classWarn').hidden = true;
+  renderClassPickers();
+};
+$('#classSwatches').onclick = e => {
+  const c = e.target.dataset.color;
+  if (c) { pickedClassColor = c; renderClassPickers(); }
+};
+$('#classDelete').onclick = () => {
+  if (!editingClass || !confirm(`確定刪除「${editingClass.name}」星期${WEEK[editingClass.weekday]}這堂課？`)) return;
+  remove('classes', editingClass.id);
+  $('#classDialog').close();
+  toast('刪掉了 🗑️');
+};
+$('#semesterForm').addEventListener('submit', saveSemester);
+$('#semesterClear').onclick = () => {
+  $('#semesterForm').start.value = '';
+  $('#semesterForm').end.value = '';
+};
+$('#shareBtn').onclick = shareApp;
 
 $('#exportBtn').onclick = exportData;
 $('#importInput').onchange = e => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ''; };
