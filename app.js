@@ -428,6 +428,7 @@ function openShiftForm(shift, date) {
     applyJobDefaults();
   }
   f.repeat.value = '0';
+  shiftTimes.close();
   $('#repeatRow').hidden = !!shift;
   $('#shiftDelete').hidden = !shift;
   $('#shiftFormTitle').textContent = shift ? '編輯班次' : '新增班次';
@@ -455,6 +456,7 @@ function readShiftForm() {
   };
 }
 function updatePreview() {
+  shiftTimes.refresh();
   const s = readShiftForm();
   const warn = $('#shiftWarn');
   warn.hidden = true;
@@ -481,7 +483,12 @@ function updatePreview() {
 function saveShift(e) {
   e.preventDefault();
   const data = readShiftForm();
-  if (!data.date || !data.start || !data.end) return;
+  if (!data.date) return;
+  if (!data.start || !data.end) {
+    $('#shiftWarn').hidden = false;
+    $('#shiftWarn').textContent = '先選好上班和下班時間 ⏰';
+    return;
+  }
   const repeat = editingShift ? 0 : Number($('#shiftForm').repeat.value) || 0;
   const dates = Array.from({ length: repeat + 1 }, (_, i) => ymd(addDays(parseYmd(data.date), i * 7)));
   const clashCount = dates.filter(date => hasClash({ ...data, date, id: editingShift?.id })).length;
@@ -735,6 +742,8 @@ function openClassForm(c) {
   f.start.value = c?.start || '';
   f.end.value = c?.end || '';
   f.room.value = c?.room || '';
+  classTimes.close();
+  classTimes.refresh();
   pickedDays = new Set(c ? [c.weekday] : []);
   const usedColors = new Set(Object.values(state.classes).filter(x => !x.deleted).map(x => x.color));
   pickedClassColor = c?.color || COLORS.find(x => !usedColors.has(x)) || COLORS[0];
@@ -756,7 +765,8 @@ function saveClass(e) {
   const f = $('#classForm');
   const warn = $('#classWarn');
   const name = f.name.value.trim();
-  if (!name || !f.start.value || !f.end.value) return;
+  if (!name) return;
+  if (!f.start.value || !f.end.value) { warn.hidden = false; warn.textContent = '先選好上下課時間 ⏰'; return; }
   if (!pickedDays.size) { warn.hidden = false; warn.textContent = '請選擇星期幾上課 📅'; return; }
   if (toMin(f.end.value) <= toMin(f.start.value)) { warn.hidden = false; warn.textContent = '下課時間要比上課時間晚喔 ⏰'; return; }
   const base = { name, start: f.start.value, end: f.end.value, room: f.room.value.trim(), color: pickedClassColor };
@@ -1008,6 +1018,87 @@ const cloud = {
   },
 };
 
+// ---------- 時間滾輪（像鬧鐘一樣轉，24 小時制） ----------
+// 每個 .time-field 裡有一個 hidden input 存 "HH:MM"，表單其他程式照常讀寫它；改完值後呼叫 refresh() 更新顯示
+const WHEEL_ITEM = 40;
+function setupTimeWheels(form) {
+  const panel = form.querySelector('.wheel-panel');
+  const wheels = [panel.querySelector('[data-unit=h]'), panel.querySelector('[data-unit=m]')];
+  wheels[0].innerHTML = Array.from({ length: 24 }, (_, i) => `<div class="wheel-item">${pad(i)}</div>`).join('');
+  wheels[1].innerHTML = Array.from({ length: 60 }, (_, i) => `<div class="wheel-item">${pad(i)}</div>`).join('');
+  const fields = [...form.querySelectorAll('.time-field')];
+  const inputOf = field => field.querySelector('input');
+  let target = null;
+  let settleTimer;
+
+  const indexOf = wheel => Math.max(0, Math.min(wheel.children.length - 1, Math.round(wheel.scrollTop / WHEEL_ITEM)));
+  function highlight(wheel) {
+    const i = indexOf(wheel);
+    [...wheel.children].forEach((el, j) => el.classList.toggle('sel', i === j));
+  }
+  function scrollToIndex(wheel, i, smooth) {
+    wheel.scrollTo({ top: i * WHEEL_ITEM, behavior: smooth ? 'smooth' : 'auto' });
+    highlight(wheel);
+  }
+  function refresh() {
+    for (const field of fields) {
+      const v = inputOf(field).value;
+      field.querySelector('.time-btn').textContent = v || '選擇時間';
+      field.classList.toggle('is-empty', !v);
+    }
+  }
+  function changed() {
+    refresh();
+    form.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  // 第一次打開時給個合理的預設：上班 09:00，下班 = 開始後 4 小時（課是 50 分鐘）
+  function defaultFor(field) {
+    if (field.dataset.time !== 'end') return '09:00';
+    const start = form.elements.start.value;
+    return start ? fromMin(toMin(start) + (form.id === 'classForm' ? 50 : 240)) : '17:00';
+  }
+  function open(field) {
+    target = field;
+    fields.forEach(f => f.classList.toggle('active', f === field));
+    panel.hidden = false;
+    const input = inputOf(field);
+    if (!input.value) { input.value = defaultFor(field); changed(); }
+    const [h, m] = input.value.split(':').map(Number);
+    scrollToIndex(wheels[0], h, false);
+    scrollToIndex(wheels[1], m, false);
+    panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  function close() {
+    target = null;
+    panel.hidden = true;
+    fields.forEach(f => f.classList.remove('active'));
+  }
+  // 滾動停下來後才寫入，滑動中只更新中間那一格的樣式
+  function settle() {
+    if (!target) return;
+    const value = `${pad(indexOf(wheels[0]))}:${pad(indexOf(wheels[1]))}`;
+    const input = inputOf(target);
+    if (input.value !== value) { input.value = value; changed(); }
+  }
+
+  for (const wheel of wheels) {
+    wheel.addEventListener('scroll', () => {
+      highlight(wheel);
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(settle, 120);
+    }, { passive: true });
+    wheel.addEventListener('click', e => {
+      const item = e.target.closest('.wheel-item');
+      if (item) scrollToIndex(wheel, [...wheel.children].indexOf(item), true);
+    });
+  }
+  for (const field of fields) {
+    field.querySelector('.time-btn').addEventListener('click', () => (target === field ? close() : open(field)));
+  }
+  panel.querySelector('.wheel-done').addEventListener('click', () => { settle(); close(); });
+  return { refresh, close };
+}
+
 // ---------- 存錢目標 ----------
 function openGoal() {
   $('#goalForm').amount.value = goalAmount() || '';
@@ -1095,6 +1186,9 @@ $$('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d)
 
 $('#dayAdd').onclick = () => { $('#dayDialog').close(); openShiftForm(null, openDay); };
 
+const shiftTimes = setupTimeWheels($('#shiftForm'));
+const classTimes = setupTimeWheels($('#classForm'));
+
 const sf = $('#shiftForm');
 sf.addEventListener('submit', saveShift);
 sf.addEventListener('input', updatePreview);
@@ -1150,6 +1244,7 @@ $('#timetable').addEventListener('click', e => {
 $('#addClassBtn').onclick = () => openClassForm(null);
 $('#semesterBtn').onclick = openSemester;
 $('#classForm').addEventListener('submit', saveClass);
+$('#classForm').addEventListener('input', () => { $('#classWarn').hidden = true; });
 $('#weekdayPick').onclick = e => {
   const w = e.target.dataset.weekday;
   if (w === undefined) return;

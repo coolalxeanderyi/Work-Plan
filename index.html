@@ -122,8 +122,14 @@
       <label>工作<select name="jobId" required></select></label>
       <label>日期<input type="date" name="date" required></label>
       <div class="grid2">
-        <label>開始<input type="time" name="start" required></label>
-        <label>結束<input type="time" name="end" required></label>
+        <label>開始<div class="time-field" data-time="start"><input type="hidden" name="start"><button type="button" class="time-btn">選擇時間</button></div></label>
+        <label>結束<div class="time-field" data-time="end"><input type="hidden" name="end"><button type="button" class="time-btn">選擇時間</button></div></label>
+      </div>
+      <div class="wheel-panel" hidden>
+        <div class="wheel" data-unit="h" aria-label="小時"></div>
+        <span class="colon">:</span>
+        <div class="wheel" data-unit="m" aria-label="分鐘"></div>
+        <button type="button" class="wheel-done">完成</button>
       </div>
       <div class="grid2">
         <label>休息（分鐘）<input type="number" name="breakMin" min="0" step="5" inputmode="numeric"></label>
@@ -178,8 +184,14 @@
       <label>課程名稱<input type="text" name="name" required maxlength="30" placeholder="例如：微積分"></label>
       <label>星期幾上課（可以選很多天）<div class="weekday-pick" id="weekdayPick"></div></label>
       <div class="grid2">
-        <label>上課<input type="time" name="start" required></label>
-        <label>下課<input type="time" name="end" required></label>
+        <label>上課<div class="time-field" data-time="start"><input type="hidden" name="start"><button type="button" class="time-btn">選擇時間</button></div></label>
+        <label>下課<div class="time-field" data-time="end"><input type="hidden" name="end"><button type="button" class="time-btn">選擇時間</button></div></label>
+      </div>
+      <div class="wheel-panel" hidden>
+        <div class="wheel" data-unit="h" aria-label="小時"></div>
+        <span class="colon">:</span>
+        <div class="wheel" data-unit="m" aria-label="分鐘"></div>
+        <button type="button" class="wheel-done">完成</button>
       </div>
       <label>教室<input type="text" name="room" maxlength="30" placeholder="選填，例如：理學院 201"></label>
       <label>顏色<div class="swatches" id="classSwatches"></div></label>

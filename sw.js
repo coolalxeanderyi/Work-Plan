@@ -1,5 +1,5 @@
 // 離線快取：有網路時一律抓最新版（一打開就是新版），沒網路或太慢時才用快取
-const CACHE = 'workplan-v7';
+const CACHE = 'workplan-v8';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'firebase-config.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png'];
 const TIMEOUT_MS = 4000;
 

@@ -227,6 +227,47 @@ main { max-width: 900px; margin: 0 auto; padding: 14px 16px; }
 .class-row .dot { margin-right: 0; }
 .class-row span:last-child { color: var(--muted); font-size: 13px; margin-left: auto; }
 
+/* ---------- 時間滾輪 ---------- */
+form input[type=hidden] { display: none; }
+.time-field { margin-top: 4px; }
+.time-btn {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 50px; padding: 0 12px;
+  border: 2px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--text);
+  font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 1px;
+  text-align: center; cursor: pointer;
+}
+.time-field.is-empty .time-btn { font-size: 15px; color: var(--muted); font-weight: 700; letter-spacing: 0; }
+.time-field.active .time-btn { border-color: var(--primary); background: var(--primary-soft); }
+.wheel-panel {
+  position: relative; display: flex; justify-content: center; align-items: center; gap: 6px;
+  height: 200px; margin: -2px 0 12px; overflow: hidden;
+  background: var(--bg); border: 2px solid var(--border); border-radius: 18px;
+}
+/* 中間選取的那一列 */
+.wheel-panel::before {
+  content: ""; position: absolute; left: 12px; right: 12px; top: 78px; height: 40px;
+  background: var(--primary-soft); border-radius: 12px; pointer-events: none;
+}
+.wheel {
+  position: relative; width: 64px; height: 196px; padding: 78px 0; overflow-y: auto;
+  scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+.wheel::-webkit-scrollbar { display: none; }
+.wheel-item {
+  height: 40px; line-height: 40px; text-align: center; scroll-snap-align: center; cursor: pointer;
+  font-size: 22px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums;
+  transition: color .1s, transform .1s;
+}
+.wheel-item.sel { color: var(--text); font-weight: 800; transform: scale(1.15); }
+.wheel-panel .colon { position: relative; font-size: 24px; font-weight: 800; padding-bottom: 3px; }
+.wheel-done {
+  position: absolute; right: 10px; bottom: 10px; border: 0; border-radius: 999px;
+  background: var(--primary); color: var(--primary-text); font-weight: 800; font-size: 13px;
+  padding: 5px 12px; cursor: pointer;
+}
+
 /* ---------- 帳號 ---------- */
 .or {
   display: flex; align-items: center; gap: 10px; margin: 14px 0 10px;
