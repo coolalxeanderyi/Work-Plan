@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>兼職排班</title>
   <meta name="description" content="隨時隨地管理兼職班表、工時與薪資">
-  <meta name="theme-color" content="#2563eb">
+  <meta name="theme-color" content="#f2638f">
+  <script>try { document.documentElement.dataset.theme = localStorage.getItem('workplan.theme') || 'strawberry'; } catch {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -23,6 +27,7 @@
 
   <main id="main">
     <section id="view-calendar" class="view">
+      <div class="greeting" id="greeting"></div>
       <div class="month-summary" id="calSummary"></div>
       <div class="weekdays">
         <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
@@ -41,19 +46,29 @@
     <section id="view-settings" class="view" hidden>
       <div class="card">
         <div class="card-head">
-          <h2>工作 / 雇主</h2>
+          <h2>🧺 我的工作</h2>
           <button class="btn small" id="addJob">＋ 新增</button>
         </div>
         <ul class="job-list" id="jobList"></ul>
       </div>
 
       <div class="card">
-        <h2>雲端同步</h2>
+        <h2>🎨 主題顏色</h2>
+        <div class="themes" id="themes">
+          <button data-theme="strawberry"><span>🍓</span>草莓</button>
+          <button data-theme="mint"><span>🍵</span>薄荷</button>
+          <button data-theme="sky"><span>☁️</span>天空</button>
+          <button data-theme="lavender"><span>🔮</span>薰衣草</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>☁️ 雲端同步</h2>
         <div id="syncPanel"></div>
       </div>
 
       <div class="card">
-        <h2>備份</h2>
+        <h2>💾 備份</h2>
         <p class="muted">把所有資料存成一個檔案，或從檔案還原。</p>
         <div class="row">
           <button class="btn" id="exportBtn">匯出備份</button>
@@ -66,10 +81,10 @@
   <button class="fab" id="fab" aria-label="新增班次">＋</button>
 
   <nav class="tabbar">
-    <button data-view="calendar" class="active"><span>📅</span>月曆</button>
-    <button data-view="list"><span>📋</span>清單</button>
-    <button data-view="stats"><span>💰</span>統計</button>
-    <button data-view="settings"><span>⚙️</span>設定</button>
+    <button data-view="calendar" class="active"><span>🗓️</span>月曆</button>
+    <button data-view="list"><span>📝</span>清單</button>
+    <button data-view="stats"><span>🐷</span>存錢</button>
+    <button data-view="settings"><span>🎀</span>設定</button>
   </nav>
 
   <!-- 某一天的班次 -->
@@ -79,7 +94,7 @@
       <button class="icon-btn" data-close aria-label="關閉">✕</button>
     </div>
     <div id="dayShifts"></div>
-    <button class="btn primary block" id="dayAdd">＋ 新增這天的班</button>
+    <button class="btn primary block" id="dayAdd">＋ 新增這天的班 ✨</button>
   </dialog>
 
   <!-- 班次表單 -->
@@ -126,7 +141,8 @@
         <h3 id="jobFormTitle">新增工作</h3>
         <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
       </div>
-      <label>名稱<input type="text" name="name" required maxlength="30" placeholder="例如：咖啡店"></label>
+      <label>名稱<input type="text" name="name" required maxlength="30" placeholder="例如：咖啡店 ☕"></label>
+      <label>小圖示<div class="emojis" id="emojis"></div></label>
       <label>顏色<div class="swatches" id="swatches"></div></label>
       <div class="grid2">
         <label>時薪<input type="number" name="wage" min="0" step="1" inputmode="decimal" required></label>

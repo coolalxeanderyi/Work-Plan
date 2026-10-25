@@ -2,13 +2,15 @@ import { firebaseConfig } from './firebase-config.js';
 
 // ============================================================
 // 資料結構
-//   state.jobs[id]   = { id, name, color, wage, breakMin, start, end, updatedAt, deleted? }
+//   state.jobs[id]   = { id, name, emoji, color, wage, breakMin, start, end, updatedAt, deleted? }
 //   state.shifts[id] = { id, jobId, date, start, end, breakMin, wage, note, updatedAt, deleted? }
 // 刪除只標記 deleted（墓碑），多台裝置同步時才不會把刪掉的資料救回來。
 // ============================================================
 
 const STORAGE_KEY = 'workplan.v1';
-const COLORS = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#9333ea', '#0891b2', '#db2777', '#4b5563'];
+const COLORS = ['#ff8fab', '#ffb36b', '#ffd85e', '#8fd9a8', '#7cc6fe', '#b69cff', '#ff9e9e', '#86e3dc'];
+const EMOJIS = ['☕', '🍰', '🍔', '🍜', '🧋', '📚', '✏️', '🛒', '👕', '💻', '🎨', '🎤', '🐶', '🌸', '🚲', '📦', '🏥', '⭐'];
+const THEME_COLORS = { strawberry: '#f2638f', mint: '#2fae7a', sky: '#4a96f0', lavender: '#8f6cf0' };
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -31,6 +33,14 @@ function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
+// 依底色亮度決定用深色或白色字
+function textOn(hex) {
+  const n = parseInt(String(hex).slice(1, 7), 16);
+  if (Number.isNaN(n)) return '#3d2c3e';
+  const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum > 0.6 ? '#3d2c3e' : '#ffffff';
+}
+const emojiOf = j => j.emoji || '⭐';
 function money(n) { return '$' + Math.round(n).toLocaleString('zh-TW'); }
 function hours(min) { return (min / 60).toFixed(min % 60 ? 1 : 0); }
 const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -45,7 +55,7 @@ function shiftMinutes(s) {
 function shiftPay(s) { return shiftMinutes(s) / 60 * (Number(s.wage) || 0); }
 
 const jobs = () => Object.values(state.jobs).filter(j => !j.deleted).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
-const jobOf = id => (state.jobs[id]?.name ? state.jobs[id] : { name: '（已刪除的工作）', color: '#9ca3af' });
+const jobOf = id => (state.jobs[id]?.name ? state.jobs[id] : { name: '（已刪除的工作）', color: '#c9c2c6', emoji: '👻' });
 const shiftsOn = date => Object.values(state.shifts)
   .filter(s => !s.deleted && s.date === date)
   .sort((a, b) => a.start.localeCompare(b.start));
@@ -65,7 +75,7 @@ function loadLocal() {
   return { jobs: {}, shifts: {} };
 }
 function saveLocal() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { toast('無法儲存到本機'); }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { toast('無法儲存到本機 😢'); }
 }
 function upsert(kind, item) {
   item.updatedAt = Date.now();
@@ -131,12 +141,32 @@ function monthTotals(list) {
   return { min, pay, count: list.length };
 }
 
+function renderGreeting() {
+  const h = new Date().getHours();
+  const [face, hello] = h < 5 ? ['🌙', '夜深了，早點休息喔']
+    : h < 11 ? ['🌞', '早安！']
+    : h < 14 ? ['🍙', '午安～記得吃飯']
+    : h < 18 ? ['🌼', '下午好！']
+    : ['🌛', '晚上好～'];
+  const today = shiftsOn(ymd(new Date()));
+  let sub;
+  if (!jobs().length) sub = '先按右下角的 ＋ 新增一份工作吧 ✨';
+  else if (!today.length) sub = '今天沒有班，好好休息 🛌';
+  else {
+    const first = today[0];
+    sub = `今天有 ${today.length} 個班，${first.start} 開始 ${jobOf(first.jobId).name}，加油 💪`;
+  }
+  $('#greeting').innerHTML = `<span class="face">${face}</span>
+    <div><div class="hello">${esc(hello)}</div><div class="sub">${esc(sub)}</div></div>`;
+}
+
 function renderCalendar() {
+  renderGreeting();
   const t = monthTotals(shiftsInMonth(cursor));
   $('#calSummary').innerHTML = `
-    <span class="pill">班數 <b>${t.count}</b></span>
-    <span class="pill">工時 <b>${hours(t.min)}</b> 小時</span>
-    <span class="pill">預估薪資 <b>${money(t.pay)}</b></span>`;
+    <span class="pill">🗓️ <b>${t.count}</b> 個班</span>
+    <span class="pill">⏰ <b>${hours(t.min)}</b> 小時</span>
+    <span class="pill">💰 <b>${money(t.pay)}</b></span>`;
 
   const first = addDays(cursor, -cursor.getDay());
   const lastOfMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
@@ -150,9 +180,10 @@ function renderCalendar() {
     const cls = ['day'];
     if (d.getMonth() !== cursor.getMonth()) cls.push('other');
     if (key === today) cls.push('today');
+    if (d.getDay() === 0 || d.getDay() === 6) cls.push('weekend');
     const chips = list.slice(0, 3).map(s => {
       const j = jobOf(s.jobId);
-      return `<div class="chip" style="background:${esc(j.color)}"><span class="t">${esc(s.start)} </span>${esc(j.name)}</div>`;
+      return `<div class="chip" style="background:${esc(j.color)};color:${textOn(j.color)}">${esc(emojiOf(j))}<span class="t"> ${esc(s.start)}</span><span class="n"> ${esc(j.name)}</span></div>`;
     }).join('');
     const more = list.length > 3 ? `<div class="more">+${list.length - 3}</div>` : '';
     html += `<button class="${cls.join(' ')}" data-date="${key}"><span class="num">${d.getDate()}</span>${chips}${more}</button>`;
@@ -164,7 +195,7 @@ function shiftItemHtml(s) {
   const j = jobOf(s.jobId);
   const note = s.note ? ` · ${esc(s.note)}` : '';
   return `<button class="shift-item" data-shift="${s.id}">
-    <span class="bar" style="background:${esc(j.color)}"></span>
+    <span class="bubble" style="background:${esc(j.color)}55">${esc(emojiOf(j))}</span>
     <span class="info">
       <div class="title">${esc(j.name)}</div>
       <div class="sub">${esc(s.start)}–${esc(s.end)} · ${hours(shiftMinutes(s))} 小時${note}</div>
@@ -176,7 +207,7 @@ function shiftItemHtml(s) {
 function renderList() {
   const list = shiftsInMonth(cursor);
   if (!list.length) {
-    $('#shiftList').innerHTML = `<div class="empty">這個月還沒有班<br>按右下角「＋」新增</div>`;
+    $('#shiftList').innerHTML = `<div class="empty"><span class="big">🐣</span>這個月還沒有班<br>按右下角的 ＋ 新增吧</div>`;
     return;
   }
   const today = ymd(new Date());
@@ -206,23 +237,23 @@ function renderStats() {
 
   $('#stats').innerHTML = `
     <div class="kpis">
-      <div class="kpi"><div class="label">本月薪資</div><div class="value">${money(t.pay)}</div></div>
-      <div class="kpi"><div class="label">本月工時</div><div class="value">${hours(t.min)}h</div></div>
-      <div class="kpi"><div class="label">本月班數</div><div class="value">${t.count}</div></div>
+      <div class="kpi"><div class="emoji">💰</div><div class="label">本月薪資</div><div class="value">${money(t.pay)}</div></div>
+      <div class="kpi"><div class="emoji">⏰</div><div class="label">本月工時</div><div class="value">${hours(t.min)}h</div></div>
+      <div class="kpi"><div class="emoji">🗓️</div><div class="label">本月班數</div><div class="value">${t.count}</div></div>
     </div>
     <div class="card">
-      <h2>各工作明細</h2>
+      <h2>📊 各工作明細</h2>
       ${rows.length ? rows.map(([id, b]) => {
         const j = jobOf(id);
         return `<div class="breakdown-row">
-          <div class="top"><span><span class="dot" style="background:${esc(j.color)}"></span>${esc(j.name)}</span>
+          <div class="top"><span>${esc(emojiOf(j))} ${esc(j.name)}</span>
           <span>${money(b.pay)} · ${hours(b.min)}h · ${b.count} 班</span></div>
           <div class="meter"><div style="width:${(b.pay / maxPay * 100).toFixed(1)}%;background:${esc(j.color)}"></div></div>
         </div>`;
-      }).join('') : '<p class="muted">這個月沒有資料</p>'}
+      }).join('') : '<p class="muted">這個月還沒有收入，加油 🌱</p>'}
     </div>
     <div class="card">
-      <h2>${year} 年累計</h2>
+      <h2>🐷 ${year} 年存錢筒</h2>
       <p class="muted" style="margin:0">薪資 <b>${money(y.pay)}</b> · 工時 <b>${hours(y.min)}</b> 小時 · <b>${y.count}</b> 班</p>
     </div>`;
 }
@@ -231,10 +262,12 @@ function renderSettings() {
   const list = jobs();
   $('#jobList').innerHTML = list.length ? list.map(j => `
     <li data-job="${j.id}">
-      <span class="dot" style="background:${esc(j.color)}"></span>
+      <span class="bubble" style="background:${esc(j.color)}55">${esc(emojiOf(j))}</span>
       <span class="name">${esc(j.name)}</span>
       <span class="meta">時薪 ${money(j.wage)}</span>
-    </li>`).join('') : '<li class="muted">還沒有工作，先新增一個吧</li>';
+    </li>`).join('') : '<li class="muted">還沒有工作，先新增一個吧 🌷</li>';
+  const theme = document.documentElement.dataset.theme;
+  $$('#themes button').forEach(b => b.classList.toggle('selected', b.dataset.theme === theme));
   sync.renderPanel();
 }
 
@@ -247,14 +280,14 @@ function showDay(date) {
 function renderDay() {
   $('#dayTitle').textContent = dateLabel(openDay);
   const list = shiftsOn(openDay);
-  $('#dayShifts').innerHTML = list.length ? list.map(shiftItemHtml).join('') : '<p class="muted">這天沒有班</p>';
+  $('#dayShifts').innerHTML = list.length ? list.map(shiftItemHtml).join('') : '<p class="muted">這天沒有班，可以放空 ☁️</p>';
 }
 
 // ---------- 班次表單 ----------
 let editingShift = null;
 function openShiftForm(shift, date) {
   if (!jobs().length) {
-    toast('請先新增一個工作');
+    toast('先新增一份工作喔 🌷');
     view = 'settings'; render();
     openJobForm(null);
     return;
@@ -316,7 +349,7 @@ function saveShift(e) {
   localStorage.setItem('workplan.lastJob', data.jobId);
   if (editingShift) {
     upsert('shifts', { ...editingShift, ...data });
-    toast('已更新');
+    toast('更新好了 ✨');
   } else {
     const repeat = Number($('#shiftForm').repeat.value) || 0;
     const base = parseYmd(data.date);
@@ -326,7 +359,7 @@ function saveShift(e) {
       state.shifts[id] = { id, ...data, date: ymd(addDays(base, i * 7)), updatedAt: now };
     }
     commit();
-    toast(repeat ? `已新增 ${repeat + 1} 個班` : '已新增');
+    toast(repeat ? `新增了 ${repeat + 1} 個班 🎉` : '排好班了 🎉');
   }
   $('#shiftDialog').close();
 }
@@ -334,6 +367,7 @@ function saveShift(e) {
 // ---------- 工作表單 ----------
 let editingJob = null;
 let pickedColor = COLORS[0];
+let pickedEmoji = EMOJIS[0];
 function openJobForm(job) {
   editingJob = job;
   const f = $('#jobForm');
@@ -344,6 +378,8 @@ function openJobForm(job) {
   f.end.value = job?.end || '';
   const used = new Set(jobs().map(j => j.color));
   pickedColor = job?.color || COLORS.find(c => !used.has(c)) || COLORS[0];
+  const usedEmoji = new Set(jobs().map(j => j.emoji));
+  pickedEmoji = job?.emoji || EMOJIS.find(e => !usedEmoji.has(e)) || EMOJIS[0];
   renderSwatches();
   $('#jobDelete').hidden = !job;
   $('#jobFormTitle').textContent = job ? '編輯工作' : '新增工作';
@@ -352,6 +388,8 @@ function openJobForm(job) {
 function renderSwatches() {
   $('#swatches').innerHTML = COLORS.map(c =>
     `<button type="button" data-color="${c}" class="${c === pickedColor ? 'selected' : ''}" style="background:${c}" aria-label="顏色 ${c}"></button>`).join('');
+  $('#emojis').innerHTML = EMOJIS.map(e =>
+    `<button type="button" data-emoji="${e}" class="${e === pickedEmoji ? 'selected' : ''}">${e}</button>`).join('');
 }
 function saveJob(e) {
   e.preventDefault();
@@ -360,11 +398,11 @@ function saveJob(e) {
   if (!name) return;
   upsert('jobs', {
     ...(editingJob || { id: newId() }),
-    name, color: pickedColor, wage: Number(f.wage.value) || 0,
+    name, emoji: pickedEmoji, color: pickedColor, wage: Number(f.wage.value) || 0,
     breakMin: Number(f.breakMin.value) || 0, start: f.start.value, end: f.end.value,
   });
   $('#jobDialog').close();
-  toast(editingJob ? '已更新' : '已新增工作');
+  toast(editingJob ? '更新好了 ✨' : `${pickedEmoji} 新增工作成功`);
 }
 
 // ---------- 備份 ----------
@@ -382,9 +420,9 @@ async function importData(file) {
     if (!data.jobs || !data.shifts) throw new Error('format');
     mergeInto(state, data);
     commit();
-    toast('匯入完成');
+    toast('匯入完成 📦');
   } catch {
-    toast('檔案格式不正確');
+    toast('檔案格式不對耶 🤔');
   }
 }
 
@@ -446,7 +484,7 @@ const sync = {
         this.setDot('on');
       }, err => {
         console.error(err);
-        toast('同步失敗，請檢查 Firestore 規則');
+        toast('同步失敗，請檢查 Firestore 規則 😢');
         this.setDot('');
       });
     } else {
@@ -468,7 +506,7 @@ const sync = {
       } catch (err) {
         console.error(err);
         this.setDot('');
-        toast('上傳失敗，連線恢復後會再試');
+        toast('上傳失敗，連線恢復後會再試 📡');
       }
     }, delay);
   },
@@ -490,7 +528,7 @@ const sync = {
 
   async logout() {
     await this.api.auth.signOut(this.api.a);
-    toast('已登出，資料仍保留在這台裝置');
+    toast('已登出，資料還留在這台裝置 👋');
   },
 
   setDot(cls) {
@@ -503,8 +541,8 @@ const sync = {
     const p = $('#syncPanel');
     if (!p) return;
     if (!this.enabled) {
-      p.innerHTML = `<p class="muted">目前是<b>本機模式</b>：資料只存在這台裝置的瀏覽器。
-        要在手機和電腦之間同步，請照 README 的步驟設定 Firebase，填好 <code>firebase-config.js</code> 即可。</p>`;
+      p.innerHTML = `<p class="muted">目前是<b>本機模式</b>：資料存在這台裝置裡，記得偶爾匯出備份喔。
+        想讓手機和電腦看到同一份班表時再設定就好，現在不用管它 😊</p>`;
       return;
     }
     if (this.loadError) {
@@ -566,7 +604,7 @@ $('#shiftDelete').onclick = () => {
   if (!editingShift || !confirm('確定刪除這個班？')) return;
   remove('shifts', editingShift.id);
   $('#shiftDialog').close();
-  toast('已刪除');
+  toast('刪掉了 🗑️');
 };
 
 $('#jobForm').addEventListener('submit', saveJob);
@@ -574,12 +612,27 @@ $('#swatches').onclick = e => {
   const c = e.target.dataset.color;
   if (c) { pickedColor = c; renderSwatches(); }
 };
+$('#emojis').onclick = e => {
+  const em = e.target.dataset.emoji;
+  if (em) { pickedEmoji = em; renderSwatches(); }
+};
+$('#themes').onclick = e => {
+  const b = e.target.closest('[data-theme]');
+  if (!b) return;
+  setTheme(b.dataset.theme);
+  renderSettings();
+};
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name=theme-color]').content = THEME_COLORS[theme] || THEME_COLORS.strawberry;
+  try { localStorage.setItem('workplan.theme', theme); } catch { /* 無痕模式存不了也沒關係 */ }
+}
 $('#addJob').onclick = () => openJobForm(null);
 $('#jobDelete').onclick = () => {
   if (!editingJob || !confirm(`確定刪除「${editingJob.name}」？已排的班會保留。`)) return;
   remove('jobs', editingJob.id);
   $('#jobDialog').close();
-  toast('已刪除');
+  toast('刪掉了 🗑️');
 };
 
 $('#exportBtn').onclick = exportData;
@@ -595,5 +648,6 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+setTheme(document.documentElement.dataset.theme || 'strawberry');
 render();
 sync.init();
