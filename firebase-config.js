@@ -13,4 +13,11 @@
 //
 // 這些值本來就會公開在網頁上，不是密碼；資料是靠 Firestore 安全規則保護（每個人只能讀寫自己的資料）。
 
-export const firebaseConfig = null;
+export const firebaseConfig = {
+  apiKey: "AIzaSyA21nCRcvSRZWQN83HHA9Mun1b-BG7dBf0",
+  authDomain: "work-plan-12b8e.firebaseapp.com",
+  projectId: "work-plan-12b8e",
+  storageBucket: "work-plan-12b8e.firebasestorage.app",
+  messagingSenderId: "82810898296",
+  appId: "1:82810898296:web:641b5c959598f9f6d16a8d",
+};
