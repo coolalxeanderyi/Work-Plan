@@ -61,6 +61,7 @@ function spanMinutes(s) {
   if (m <= 0) m += 24 * 60;
   return m;
 }
+const isOvernight = s => toMin(s.end) < toMin(s.start);
 function shiftMinutes(s) { return Math.max(0, spanMinutes(s) - (Number(s.breakMin) || 0)); }
 // 跨夜班可以，但超過這個長度幾乎一定是把時間選錯了（例如 17:00 上班、16:30 下班）
 const MAX_SHIFT_MIN = 16 * 60;
@@ -480,17 +481,17 @@ function updatePreview() {
     warn.textContent = problem;
     return;
   }
-  const overnight = toMin(s.end) <= toMin(s.start) ? '（跨夜）' : '';
-  $('#shiftPreview').textContent = `共 ${hours(shiftMinutes(s))} 小時${overnight}，預估 ${money(shiftPay(s))}`;
-  if (!s.date) return;
+  const overnight = isOvernight(s);
+  $('#shiftPreview').textContent = `共 ${hours(shiftMinutes(s))} 小時${overnight ? '（跨夜）' : ''}，預估 ${money(shiftPay(s))}`;
+  const lines = [];
+  if (overnight) lines.push(`🌙 結束時間比開始時間早，會算成隔天 ${s.end} 下班。不是跨夜班的話，請改一下時間`);
   const cur = { ...s, id: editingShift?.id };
   const dayPrefix = date => (date === s.date ? '' : dateLabel(date) + ' ');
-  const lines = [];
-  const shiftClashes = clashesOf(cur);
+  const shiftClashes = s.date ? clashesOf(cur) : [];
   if (shiftClashes.length) {
     lines.push('⚠️ 撞班了：' + shiftClashes.map(o => `${dayPrefix(o.date)}${jobOf(o.jobId).name} ${o.start}–${o.end}`).join('、'));
   }
-  const classClashes = classClashesOf(cur);
+  const classClashes = s.date ? classClashesOf(cur) : [];
   if (classClashes.length) {
     lines.push('📖 撞課了：' + classClashes.map(c => `${dayPrefix(c.date)}${c.name} ${c.start}–${c.end}`).join('、'));
   }
@@ -511,6 +512,7 @@ function saveShift(e) {
   }
   const repeat = editingShift ? 0 : Number($('#shiftForm').repeat.value) || 0;
   const dates = Array.from({ length: repeat + 1 }, (_, i) => ymd(addDays(parseYmd(data.date), i * 7)));
+  if (isOvernight(data) && !confirm(`結束時間（${data.end}）比開始時間（${data.start}）早。\n這是跨夜班嗎？\n\n確定：存成隔天 ${data.end} 下班\n取消：回去修改時間`)) return;
   const clashCount = dates.filter(date => hasClash({ ...data, date, id: editingShift?.id })).length;
   if (clashCount && !confirm(`⚠️ 有 ${clashCount} 個班跟其他班或上課時間撞到了，還是要儲存嗎？`)) return;
 
