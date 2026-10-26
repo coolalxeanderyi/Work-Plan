@@ -755,7 +755,7 @@ function addShiftAt(date, startMin) {
 }
 
 let editingClass = null;
-let pickedDays = new Set();
+let pickedDay = null;
 let pickedClassColor = COLORS[0];
 function openClassForm(c) {
   editingClass = c;
@@ -766,7 +766,7 @@ function openClassForm(c) {
   f.room.value = c?.room || '';
   classTimes.close();
   classTimes.refresh();
-  pickedDays = new Set(c ? [c.weekday] : []);
+  pickedDay = c ? c.weekday : null;
   const usedColors = new Set(Object.values(state.classes).filter(x => !x.deleted).map(x => x.color));
   pickedClassColor = c?.color || COLORS.find(x => !usedColors.has(x)) || COLORS[0];
   renderClassPickers();
@@ -778,7 +778,7 @@ function openClassForm(c) {
 function renderClassPickers() {
   // 學生習慣週一開始
   $('#weekdayPick').innerHTML = [1, 2, 3, 4, 5, 6, 0].map(w =>
-    `<button type="button" data-weekday="${w}" class="${pickedDays.has(w) ? 'selected' : ''}">${WEEK[w]}</button>`).join('');
+    `<button type="button" data-weekday="${w}" class="${pickedDay === w ? 'selected' : ''}">${WEEK[w]}</button>`).join('');
   $('#classSwatches').innerHTML = COLORS.map(c =>
     `<button type="button" data-color="${c}" class="${c === pickedClassColor ? 'selected' : ''}" style="background:${c}" aria-label="顏色 ${c}"></button>`).join('');
 }
@@ -789,21 +789,14 @@ function saveClass(e) {
   const name = f.name.value.trim();
   if (!name) return;
   if (!f.start.value || !f.end.value) { warn.hidden = false; warn.textContent = '先選好上下課時間 ⏰'; return; }
-  if (!pickedDays.size) { warn.hidden = false; warn.textContent = '請選擇星期幾上課 📅'; return; }
+  if (pickedDay === null) { warn.hidden = false; warn.textContent = '請選擇星期幾上課 📅'; return; }
   if (toMin(f.end.value) <= toMin(f.start.value)) { warn.hidden = false; warn.textContent = '下課時間要比上課時間晚喔 ⏰'; return; }
   const base = { name, start: f.start.value, end: f.end.value, room: f.room.value.trim(), color: pickedClassColor };
-  const days = [...pickedDays];
-  const now = Date.now();
-  if (editingClass) {
-    state.classes[editingClass.id] = { ...editingClass, ...base, weekday: days.shift(), updatedAt: now };
-  }
-  for (const weekday of days) {
-    const id = newId();
-    state.classes[id] = { id, ...base, weekday, updatedAt: now };
-  }
+  const id = editingClass?.id || newId();
+  state.classes[id] = { ...editingClass, id, ...base, weekday: pickedDay, updatedAt: Date.now() };
   commit();
   $('#classDialog').close();
-  toast(editingClass ? '課程更新好了 📖' : `加入 ${pickedDays.size} 堂課 📖`);
+  toast(editingClass ? '課程更新好了 📖' : '課程加好了 📖');
 }
 
 function openSemester() {
@@ -1292,7 +1285,7 @@ $('#weekdayPick').onclick = e => {
   const w = e.target.dataset.weekday;
   if (w === undefined) return;
   const n = Number(w);
-  if (pickedDays.has(n)) pickedDays.delete(n); else pickedDays.add(n);
+  pickedDay = n;
   $('#classWarn').hidden = true;
   renderClassPickers();
 };

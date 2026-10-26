@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="兼職排班">
   <!-- 更新網站時，?v= 和 sw.js 的 CACHE 要一起改，確保新版頁面一定搭配新版的樣式和程式 -->
-  <link rel="stylesheet" href="style.css?v=20261026d">
+  <link rel="stylesheet" href="style.css?v=20261026e">
 </head>
 <body>
   <header class="topbar">
@@ -183,7 +183,7 @@
         <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
       </div>
       <label>課程名稱<input type="text" name="name" required maxlength="30" placeholder="例如：微積分"></label>
-      <label>星期幾上課（可以選很多天）<div class="weekday-pick" id="weekdayPick"></div></label>
+      <label>星期幾上課<div class="weekday-pick" id="weekdayPick"></div></label>
       <div class="grid2">
         <label>上課<div class="time-field" data-time="start"><input type="hidden" name="start"><button type="button" class="time-btn">選擇時間</button></div></label>
         <label>下課<div class="time-field" data-time="end"><input type="hidden" name="end"><button type="button" class="time-btn">選擇時間</button></div></label>
@@ -258,6 +258,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="app.js?v=20261026d"></script>
+  <script type="module" src="app.js?v=20261026e"></script>
 </body>
 </html>
