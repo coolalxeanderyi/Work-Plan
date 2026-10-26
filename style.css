@@ -238,6 +238,10 @@ form input[type=hidden] { display: none; }
 }
 .time-field.is-empty .time-btn { font-size: 15px; color: var(--muted); font-weight: 700; letter-spacing: 0; }
 .time-field.active .time-btn { border-color: var(--primary); background: var(--primary-soft); }
+.time-field.next-day .time-btn::before {
+  content: "隔天"; margin-right: 6px; padding: 1px 7px; border-radius: 999px;
+  background: var(--primary); color: var(--primary-text); font-size: 11px; letter-spacing: 0;
+}
 .wheel-panel {
   position: relative; display: flex; justify-content: center; align-items: center; gap: 6px;
   height: 200px; margin: -2px 0 12px; overflow: hidden;

@@ -55,10 +55,22 @@ const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
 function dateLabel(s) { const d = parseYmd(s); return `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）`; }
 
 // 工作分鐘數；結束早於開始視為跨夜
-function shiftMinutes(s) {
+// 上班到下班的總長（含休息）；下班時間比上班早就當成隔天下班
+function spanMinutes(s) {
   let m = toMin(s.end) - toMin(s.start);
   if (m <= 0) m += 24 * 60;
-  return Math.max(0, m - (Number(s.breakMin) || 0));
+  return m;
+}
+function shiftMinutes(s) { return Math.max(0, spanMinutes(s) - (Number(s.breakMin) || 0)); }
+// 跨夜班可以，但超過這個長度幾乎一定是把時間選錯了（例如 17:00 上班、16:30 下班）
+const MAX_SHIFT_MIN = 16 * 60;
+function timeProblem(s) {
+  if (!s.start || !s.end) return '';
+  if (s.start === s.end) return '上班和下班時間一樣喔，請檢查一下 ⏰';
+  if (spanMinutes(s) > MAX_SHIFT_MIN) {
+    return `下班時間比上班時間早囉！${s.start} 上班、${s.end} 下班，會變成隔天才下班（${hours(spanMinutes(s))} 小時），請檢查一下 ⏰`;
+  }
+  return '';
 }
 function shiftPay(s) { return shiftMinutes(s) / 60 * (Number(s.wage) || 0); }
 
@@ -286,7 +298,7 @@ function shiftItemHtml(s) {
   return `<button class="shift-item" data-shift="${s.id}">
     <span class="bubble" style="background:${esc(j.color)}55">${esc(emojiOf(j))}</span>
     <span class="info">
-      <div class="title">${esc(j.name)}${clashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞班</span>' : ''}${classClashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞課</span>' : ''}</div>
+      <div class="title">${esc(j.name)}${clashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞班</span>' : ''}${classClashesOf(s).length ? ' <span class="clash-tag">⚠️ 撞課</span>' : ''}${timeProblem(s) ? ' <span class="clash-tag">⚠️ 時間怪怪的</span>' : ''}</div>
       <div class="sub">${esc(s.start)}–${esc(s.end)} · ${hours(shiftMinutes(s))} 小時${note}</div>
     </span>
     <span class="pay">${money(shiftPay(s))}</span>
@@ -461,6 +473,13 @@ function updatePreview() {
   const warn = $('#shiftWarn');
   warn.hidden = true;
   if (!s.start || !s.end) { $('#shiftPreview').textContent = ''; return; }
+  const problem = timeProblem(s);
+  if (problem) {
+    $('#shiftPreview').textContent = '';
+    warn.hidden = false;
+    warn.textContent = problem;
+    return;
+  }
   const overnight = toMin(s.end) <= toMin(s.start) ? '（跨夜）' : '';
   $('#shiftPreview').textContent = `共 ${hours(shiftMinutes(s))} 小時${overnight}，預估 ${money(shiftPay(s))}`;
   if (!s.date) return;
@@ -484,9 +503,10 @@ function saveShift(e) {
   e.preventDefault();
   const data = readShiftForm();
   if (!data.date) return;
-  if (!data.start || !data.end) {
+  const problem = !data.start || !data.end ? '先選好上班和下班時間 ⏰' : timeProblem(data);
+  if (problem) {
     $('#shiftWarn').hidden = false;
-    $('#shiftWarn').textContent = '先選好上班和下班時間 ⏰';
+    $('#shiftWarn').textContent = problem;
     return;
   }
   const repeat = editingShift ? 0 : Number($('#shiftForm').repeat.value) || 0;
@@ -1059,6 +1079,12 @@ function setupTimeWheels(form) {
       const v = inputOf(field).value;
       field.querySelector('.time-btn').textContent = v || '選擇時間';
       field.classList.toggle('is-empty', !v);
+    }
+    // 班可以跨夜：下班時間比上班早時，在下班時間前標「隔天」
+    if ('overnight' in form.dataset) {
+      const start = form.elements.start.value;
+      const end = form.elements.end.value;
+      form.querySelector('.time-field[data-time=end]').classList.toggle('next-day', !!start && !!end && toMin(end) < toMin(start));
     }
   }
   function changed() {
