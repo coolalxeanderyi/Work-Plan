@@ -1020,25 +1020,39 @@ const cloud = {
 
 // ---------- 時間滾輪（像鬧鐘一樣轉，24 小時制） ----------
 // 每個 .time-field 裡有一個 hidden input 存 "HH:MM"，表單其他程式照常讀寫它；改完值後呼叫 refresh() 更新顯示
+// 滾輪會循環（23 之後接 00）：數字重複排 WHEEL_LOOPS 輪，停下來時悄悄跳回中間那一輪，所以怎麼轉都轉不到底
 const WHEEL_ITEM = 40;
+const WHEEL_LOOPS = 9;
+const WHEEL_MID = Math.floor(WHEEL_LOOPS / 2);
 function setupTimeWheels(form) {
   const panel = form.querySelector('.wheel-panel');
   const wheels = [panel.querySelector('[data-unit=h]'), panel.querySelector('[data-unit=m]')];
-  wheels[0].innerHTML = Array.from({ length: 24 }, (_, i) => `<div class="wheel-item">${pad(i)}</div>`).join('');
-  wheels[1].innerHTML = Array.from({ length: 60 }, (_, i) => `<div class="wheel-item">${pad(i)}</div>`).join('');
+  const sizes = new Map([[wheels[0], 24], [wheels[1], 60]]);
+  for (const [wheel, n] of sizes) {
+    wheel.innerHTML = Array.from({ length: n * WHEEL_LOOPS }, (_, i) => `<div class="wheel-item">${pad(i % n)}</div>`).join('');
+  }
   const fields = [...form.querySelectorAll('.time-field')];
   const inputOf = field => field.querySelector('input');
+  const selected = new Map();
   let target = null;
   let settleTimer;
 
   const indexOf = wheel => Math.max(0, Math.min(wheel.children.length - 1, Math.round(wheel.scrollTop / WHEEL_ITEM)));
+  const valueOf = wheel => indexOf(wheel) % sizes.get(wheel);
   function highlight(wheel) {
-    const i = indexOf(wheel);
-    [...wheel.children].forEach((el, j) => el.classList.toggle('sel', i === j));
+    const el = wheel.children[indexOf(wheel)];
+    if (selected.get(wheel) === el) return;
+    selected.get(wheel)?.classList.remove('sel');
+    el.classList.add('sel');
+    selected.set(wheel, el);
   }
   function scrollToIndex(wheel, i, smooth) {
     wheel.scrollTo({ top: i * WHEEL_ITEM, behavior: smooth ? 'smooth' : 'auto' });
     highlight(wheel);
+  }
+  const showValue = (wheel, v) => scrollToIndex(wheel, WHEEL_MID * sizes.get(wheel) + v, false);
+  function recenter(wheel) {
+    if (Math.floor(indexOf(wheel) / sizes.get(wheel)) !== WHEEL_MID) showValue(wheel, valueOf(wheel));
   }
   function refresh() {
     for (const field of fields) {
@@ -1064,8 +1078,8 @@ function setupTimeWheels(form) {
     const input = inputOf(field);
     if (!input.value) { input.value = defaultFor(field); changed(); }
     const [h, m] = input.value.split(':').map(Number);
-    scrollToIndex(wheels[0], h, false);
-    scrollToIndex(wheels[1], m, false);
+    showValue(wheels[0], h);
+    showValue(wheels[1], m);
     panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
   function close() {
@@ -1075,8 +1089,9 @@ function setupTimeWheels(form) {
   }
   // 滾動停下來後才寫入，滑動中只更新中間那一格的樣式
   function settle() {
+    wheels.forEach(recenter);
     if (!target) return;
-    const value = `${pad(indexOf(wheels[0]))}:${pad(indexOf(wheels[1]))}`;
+    const value = `${pad(valueOf(wheels[0]))}:${pad(valueOf(wheels[1]))}`;
     const input = inputOf(target);
     if (input.value !== value) { input.value = value; changed(); }
   }

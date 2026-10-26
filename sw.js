@@ -1,7 +1,7 @@
 // 離線快取：有網路時一律抓最新版（一打開就是新版），沒網路或太慢時才用快取。
 // style.css / app.js 帶版本號（?v=），新版頁面要的檔案快取裡不會有，只能等網路，
 // 所以不會出現「新的頁面配上舊的樣式」。版本號要跟 index.html 一起改。
-const VERSION = '20261026';
+const VERSION = '20261026b';
 const CACHE = 'workplan-' + VERSION;
 const ASSETS = ['./', 'index.html', `style.css?v=${VERSION}`, `app.js?v=${VERSION}`, 'firebase-config.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png'];
 const TIMEOUT_MS = 4000;
